@@ -8,6 +8,9 @@ import dask.dataframe as dd
 from copy import deepcopy
 # Third Party
 from caf.toolkit.concurrency import multiprocess
+import caf.toolkit as ct
+
+
 # Local Imports
 # pylint: disable=import-error,wrong-import-position
 # Local imports here
@@ -78,8 +81,8 @@ def read_satpig(path_to_satpig, include_connectors: bool = True):
     df_out = multiprocess(internal_multi, arg_list=dfs)
     return pd.concat(df_out), uc
 
-if __name__=="__main__":
-    df, uc = read_satpig(r"Y:\Carbon\QCR_Assignments\07.Noham_to_NoCarb\2018\RotherhamBase_i8c_2018_TS2_v107_SatPig_uc4.csv")
+#if __name__=="__main__":
+    #df, uc = read_satpig(r"E:\satpit_data\2018\RotherhamBase_i8c_2018_TS1_v107_SatPig_uc5.csv")
     # df = pd.read_hdf(r"E:\misc_scripts\format_tests\satpig_comp.h5", key='test', mode='r')
-    df.to_hdf(r"E:\misc_scripts\format_tests\satpig_comp.h5", key='test', mode='w', complevel=1)
-    print('debugging')
+    #df.to_hdf(r"E:\satpit_data\2018\RotherhamBase_i8c_2018_TS1_v107_SatPig_uc5.h5", key='test', mode='w', complevel=1)
+    #print('debugging')
