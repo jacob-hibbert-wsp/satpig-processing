@@ -26,8 +26,8 @@ from routing import loading
 # # # CONSTANTS # # #
 HOME_FOLDER = r"G:\raw_data\4019 - road OD flows\Satpig\QCR"
 
-YEAR_LIST = ['2028',
-             #'2038',
+YEAR_LIST = [#'2028',
+             '2038',
              #'2043',
              #'2048',
              ]
@@ -37,7 +37,7 @@ USERCLASS_LIST = ['1',
                   '4',
                   '5',
                   ]
-SCENARIO_LIST = ['Core',
+SCENARIO_LIST = [#'Core',
                  'High',
                  'Low',
                  ]
@@ -75,11 +75,14 @@ def main():
         for scenario in SCENARIO_LIST:
             for tp in TP_LIST:
                 for uc in USERCLASS_LIST:
-                    call_satpig_processing(HOME_FOLDER,
+                    try:
+                        call_satpig_processing(HOME_FOLDER,
                                            year,
                                            scenario,
                                            tp,
                                            uc)
+                    except:
+                        print(rf"Could not produce: {year}, {scenario}, {tp}, {uc}!")
 
 if __name__=="__main__":
     main()

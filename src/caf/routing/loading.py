@@ -86,3 +86,5 @@ def read_satpig(path_to_satpig, include_connectors: bool = True):
     # df = pd.read_hdf(r"E:\misc_scripts\format_tests\satpig_comp.h5", key='test', mode='r')
     #df.to_hdf(r"E:\satpit_data\2018\RotherhamBase_i8c_2018_TS1_v107_SatPig_uc5.h5", key='test', mode='w', complevel=1)
     #print('debugging')
+
+print(8)
