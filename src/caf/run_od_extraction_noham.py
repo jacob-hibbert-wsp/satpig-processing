@@ -13,8 +13,8 @@ File purpose:
 import os
 import pandas as pd
 
-from src.caf.OD_extraction import demand_extraction_path as de_path
-from src.caf.OD_extraction import demand_extraction_noham as extraction
+from OD_extraction import demand_extraction_path as de_path
+from OD_extraction import demand_extraction_noham as extraction
 
 
 # # # CONSTANTS # # #
@@ -30,9 +30,8 @@ ZONING_2 = r"lta"
 
 P1XDUMP_PATH = r"G:\raw_data\4027 - speed & network delay\p1xdump\QCR"
 
-
 # # # VARIABLES # # #
-STUDY_AREA = r"West Yorkshire CA" # extract this from the lookup used in the process (LTA, LAD, etc.)
+STUDY_AREA = r"City of York CA, North Yorkshire Council" # extract this from the lookup used in the process (LTA, LAD, etc.)
 
 USER_CLASS_LIST = ['uc1',
                    'uc2',
@@ -47,7 +46,7 @@ TIME_PERIOD_LIST = ['TS1',
                    ]
 
 # # # DATA REQUEST CONSTANTS # # #
-OUTPUT_PATH = r"G:\data_requests\2024-01-19 WYCA\2 - output\staging"
+OUTPUT_PATH = r"G:\data_requests\2024-03-28 YNYCA\2 - output\staging"
 REQUEST_CODE = r"4019 - OD"
 
 
