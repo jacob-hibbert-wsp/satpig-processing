@@ -31,7 +31,7 @@ ZONING_2 = r"lta"
 P1XDUMP_PATH = r"G:\raw_data\4027 - speed & network delay\p1xdump\QCR"
 
 # # # VARIABLES # # #
-STUDY_AREA = r"City of York CA, North Yorkshire Council" # extract this from the lookup used in the process (LTA, LAD, etc.)
+STUDY_AREA = [r"City of York CA", r"North Yorkshire Council"] # extract this from the lookup used in the process (LTA, LAD, etc.)
 
 USER_CLASS_LIST = ['uc1',
                    'uc2',
