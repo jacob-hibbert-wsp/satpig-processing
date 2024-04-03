@@ -147,9 +147,10 @@ def routing_pattern(satpig_path: str,
         lookup_check = lookup_area[['a', 'b']]
         lookup_check['check'] = 1
     if isinstance(study_area_id, list):
-        lookup_area = lookup.loc[lookup['area'].isin(study_area_id)]
+        lookup_area = lookup[lookup['area'].isin(study_area_id)]
         lookup_check = lookup_area[['a', 'b']]
         lookup_check['check'] = 1
+    print(lookup_check)
     # read modelling zone to output area lookup
     noham = pd.read_csv(noham_lookup)
     noham = noham.iloc[:, [i for i in range(len(noham.columns)) if i not in [0, 3, 4]]]
@@ -158,8 +159,9 @@ def routing_pattern(satpig_path: str,
         noham_area = noham[noham['area'] == study_area_id]
         noham_list = noham_area['zone'].tolist()
     if isinstance(study_area_id, list):
-        noham_area = noham.loc[noham['area'].isin(study_area_id)]
-        noham_list = noham_area['zone'].tolist()  
+        noham_area = noham[noham['area'].isin(study_area_id)]
+        noham_list = noham_area['zone'].tolist()
+    print(noham_list)
     # read p1xdump file
     link_distance = pd.read_csv(p1xdump_path, usecols=['A', 'B', 'Distance'])
     link_distance = link_distance.set_axis(['a', 'b', 'distance'], axis=1, copy=False)
