@@ -1,7 +1,7 @@
 name: data_requests
 channels:
-  - https://conda.anaconda.org/conda-forge/
   - conda-forge
+  - defaults
 dependencies:
   - annotated-types=0.6.0=pyhd8ed1ab_0
   - aws-c-auth=0.7.16=h7613915_8
@@ -17,10 +17,12 @@ dependencies:
   - aws-checksums=0.1.18=hf6fcf4e_2
   - aws-crt-cpp=0.26.4=hbe739fa_2
   - aws-sdk-cpp=1.11.267=hfaf0dd0_4
+  - blosc=1.21.5=hdccc3a2_0
   - bokeh=3.4.0=pyhd8ed1ab_0
   - brotli-python=1.1.0=py310h00ffb61_1
   - bzip2=1.0.8=hcfcfb64_5
   - c-ares=1.27.0=hcfcfb64_0
+  - c-blosc2=2.13.2=h183a6f4_0
   - ca-certificates=2024.2.2=h56e8100_0
   - click=8.1.7=win_pyh7428d3b_0
   - cloudpickle=3.0.0=pyhd8ed1ab_0
@@ -34,6 +36,7 @@ dependencies:
   - exceptiongroup=1.2.0=pyhd8ed1ab_2
   - freetype=2.12.1=hdaf720e_2
   - fsspec=2024.3.1=pyhca7485f_0
+  - hdf5=1.14.3=nompi_h73e8ff5_100
   - importlib-metadata=7.0.1=pyha770c72_0
   - importlib_metadata=7.0.1=hd8ed1ab_0
   - iniconfig=2.0.0=pyhd8ed1ab_0
@@ -43,6 +46,7 @@ dependencies:
   - lcms2=2.16=h67d730c_0
   - lerc=4.0.0=h63175ca_0
   - libabseil=20240116.1=cxx17_h63175ca_2
+  - libaec=1.1.3=h63175ca_0
   - libarrow=15.0.2=h878f99b_1_cpu
   - libarrow-acero=15.0.2=h63175ca_1_cpu
   - libarrow-dataset=15.0.2=h63175ca_1_cpu
@@ -81,6 +85,7 @@ dependencies:
   - libxcb=1.15=hcd874cb_0
   - libxml2=2.12.5=hc3477c8_0
   - libzlib=1.2.13=hcfcfb64_5
+  - llvmlite=0.42.0=py310hb84602e_1
   - locket=1.0.0=pyhd8ed1ab_0
   - lz4=4.3.3=py310hbbb2075_0
   - lz4-c=1.9.4=hcfcfb64_0
@@ -94,6 +99,7 @@ dependencies:
   - msgpack-python=1.0.7=py310h232114e_0
   - msys2-conda-epoch=20160418=1
   - numba=0.59.0=py310h9ccaf4f_1
+  - numexpr=2.7.3=py310hf5e1058_2
   - numpy=1.24.4=py310hd02465a_0
   - openjpeg=2.5.2=h3d672ee_0
   - openssl=3.2.1=hcfcfb64_1
@@ -107,12 +113,14 @@ dependencies:
   - psutil=5.9.8=py310h8d17308_0
   - pthread-stubs=0.4=hcd874cb_1001
   - pthreads-win32=2.9.1=hfa6e2cd_3
+  - py-cpuinfo=9.0.0=pyhd8ed1ab_0
   - pyarrow=15.0.2=py310hd0bb7c2_1_cpu
   - pyarrow-hotfix=0.6=pyhd8ed1ab_0
   - pydantic=2.6.3=pyhd8ed1ab_0
   - pydantic-core=2.16.3=py310h87d50f1_0
   - pyodbc=5.1.0=py310h00ffb61_0
   - pysocks=1.7.1=pyh0701188_6
+  - pytables=3.9.2=py310hde27e41_1
   - pytest=8.0.2=pyhd8ed1ab_0
   - python=3.10.13=h4de0772_1_cpython
   - python-dateutil=2.9.0=pyhd8ed1ab_0
@@ -153,12 +161,13 @@ dependencies:
   - yaml=0.2.5=h8ffe710_2
   - zict=3.0.0=pyhd8ed1ab_0
   - zipp=3.17.0=pyhd8ed1ab_0
+  - zlib-ng=2.0.7=hcfcfb64_0
   - zstd=1.5.5=h12be248_0
   - pip:
-      - caf-toolkit==0.5.0
-      - dnspython==2.6.1
-      - llvmlite==0.42.0
-      - mdbtools==0.3.14
-      - pymongo==4.6.2
-      - sparse==0.15.1
-      - tqdm==4.66.2
+    - caf-toolkit==0.5.0
+    - dnspython==2.6.1
+    - mdbtools==0.3.14
+    - pymongo==4.6.2
+    - sparse==0.15.1
+    - tqdm==4.66.2
+prefix: C:\ProgramData\Anaconda3\envs\data_requests
