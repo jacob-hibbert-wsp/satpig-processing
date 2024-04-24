@@ -3,30 +3,23 @@ import numpy as np
 import h5py
 import sys
 from caf.toolkit.concurrency import multiprocess
-filename = r"C:\Users\JacobHibbert\Downloads\NoHAM_QCR_DM_High_2038_TS1_v107_SatPig_uc1.csv"
-#with h5py.File(r"C:\Users\JacobHibbert\Downloads\testing.h5",'w') as h5f:
-#
-#    i_arr=np.arange(10)
-#    x_arr=np.arange(10.0)
-#
-#    my_dt = np.dtype([ ('i_arr', int), ('x_arr', float) ] )
-#    table_arr = np.recarray( (10,), dtype=my_dt )
-#    table_arr['i_arr'] = i_arr
-#    table_arr['x_arr'] = x_arr
-#
-#    my_ds = h5f.create_dataset('/ds1',data=table_arr)
-#
-## read 1 column using numpy slicing: 
-#with h5py.File(r"C:\Users\JacobHibbert\Downloads\testing.h5",'r') as h5f:
-#
-#    h5_i_arr = h5f['ds1'][:,'i_arr']
-#    h5_x_arr = h5f['ds1'][:,'x_arr']
-#    print (h5_i_arr)
-#    print (h5_x_arr)
-#sys.exit()
-#import tables
-#h5file = tables.open_file(r"G:\raw_data\4001, 4008, 4019, 4026 - Highway OD flows\raw_data\Satpig\QCR\2038\High\NoHAM_QCR_DM_High_2038_TS1_v107_SatPig_uc1.h5", driver="H5FD_CORE")
-#print(h5file)
+import re
+filename = r"C:\Users\JacobHibbert\Downloads\NoHAM_QCR_DM_Core_2038_TS1_v107_SatPig_uc2.csv"
+
+def add_unique_id(df, id_column_name):
+    """
+    Assigns a unique ID to each row in the DataFrame based on the index.
+
+    Parameters:
+    - df (DataFrame): The DataFrame to which unique IDs will be added.
+    - id_column_name (str): The name of the column to store the unique IDs.
+
+    Returns:
+    - df (DataFrame): The DataFrame with unique IDs added.
+    """
+    df.reset_index(drop=True, inplace=True)  # Reset the index in place
+    df[id_column_name] = df.index + 1  # Assign unique IDs starting from 1
+    return df
 def convert_string(s):
     try:
         return int(s)
@@ -35,16 +28,32 @@ def convert_string(s):
             return float(s)
         except ValueError:
             return s
+def remove_extra_commas(input_string):
+    pattern = r',{2,}'  # Pattern to match two or more consecutive commas
+    
+    result = re.sub(pattern, ',', input_string)
+
+    return result.rstrip(',')
 def split_string_columns(df, column_name, n, cols: list):
     # Split the strings in the specified column
     df = df[column_name].str.split(',',n=7,expand=True)
     df.columns=cols
     df[cols[:-1]] = df[cols[:-1]].apply(pd.to_numeric, downcast='integer')
     df[cols[:-1]] = df[cols[:-1]].apply(pd.to_numeric, downcast='float')
-
-    df['route'] = np.arange(df.shape[0])#df['o'].astype(str)+'_'+df['d'].astype(str)+'_'+df['route'].astype(str)
+    df = add_unique_id(df, 'route')
     return df
-
+def make_links(df_int):
+    df_int.drop(['abs_demand', 'pct_demand', 'n_node','o', 'd', 'uc','total_links'], axis=1, inplace=True)
+    df_int['Nodes'] = df_int['Nodes'].str.split(',')
+    df_int= df_int.explode('Nodes')
+    df_int['b'] = df_int.groupby('route')['Nodes'].shift(-1)
+    # Drop rows with NaN values in column 'b'
+    df_int = df_int.dropna(subset=['b'])
+    df_int = df_int.rename(columns={'Nodes': 'a'})
+    df_int['link_order_id'] = df_int.groupby('route').cumcount() + 1
+    df_int = add_unique_id(df_int, 'link_id')
+    df_int = df_int.apply(pd.to_numeric, downcast='integer')
+    return df_int   
 def internal_multi(df_int, i):
     df_int.drop('n_node', axis=1, inplace=True)
     df_int['Nodes'] = df_int['Nodes'].str.split(',')
@@ -74,26 +83,17 @@ def read_satpig(path_to_satpig, include_connectors: bool = True):
     cols = ['o', 'd', 'uc', 'route', 'abs_demand', 'pct_demand', 'n_node', 'Nodes']
     df = pd.read_csv(path_to_satpig, sep=';', names=['dummy'])
     df = split_string_columns(df, 'dummy', 7, cols)
-    uc = df['uc'].unique()[0]
-    h5File = r"C:\Users\JacobHibbert\Downloads\NoHAM_QCR_DM_High_2038_TS1_v107_SatPig_uc1_test.h5"
-    #df.to_hdf(h5File, key="/data/d1",format = 'table',data_columns = ['o','d','route','uc','abs_demand', 'pct_demand'], errors='ignore', index = False)
-    df= multiprocess(internal_multi, arg_list=df)
+    df['Nodes'] = df['Nodes'].apply(remove_extra_commas)
+    df['total_links'] = df['n_node']-1
+    #uc = df['uc'].unique()[0]
+    h5File = r"C:\Users\JacobHibbert\Downloads\NoHAM_QCR_DM_Core_2038_TS1_v107_SatPig_uc2_test.h5"
+    df.to_hdf(h5File, key="/data/d1",format = 'table',data_columns = ['o','d','route','uc','abs_demand', 'pct_demand', 'total_links'], errors='ignore', index = False)
+    
+    df = make_links(df)
+    df.to_hdf(h5File, key="/data/d2",format = 'table',data_columns = ['route','link_id','link_order_id'], errors='ignore', index = False)
+    df.to_hdf(h5File, key="/data/d3",format = 'table',data_columns = ['link_id','a','b'], errors='ignore', index = False)
     return df
 
 df = read_satpig(filename)
 print(df)
 print(df.dtypes)
-
-# Export the pandas DataFrame into HDF5
-
-#h5File = r"C:\Users\JacobHibbert\Downloads\NoHAM_QCR_DM_High_2038_TS1_v107_SatPig_uc1_test.h5"
-
-#df.to_hdf(h5File, "/data/d1")
-
-# Use pandas again to read data from the hdf5 file to the pandas DataFrame
-
-#df1 = pd.read_hdf(h5File, "/data/d1")
-
-#print("DataFrame read from the HDF5 file through pandas:")
-
-#print(df1)
