@@ -55,19 +55,28 @@ def call_satpig_processing(home_folder: str,
                            tp: str,
                            uc: str,
                            ) -> None:
-
+ 
     # read satpig extract
     satpig_file = rf"NoHAM_QCR_DM_{scenario}_{year}_{tp}_v107_SatPig_uc{uc}"
     satpig_folder = os.path.join(home_folder, year, scenario)
     satpig_path = os.path.join(satpig_folder, rf"{satpig_file}.csv")
 
     print(rf"Satpig processing initiated for: {satpig_file}")
-    df, uc = loading.read_satpig(satpig_path)
+    df = loading.read_satpig(satpig_path)
+    df.set_index(['o','d','route','uc', 'total_links'], inplace=True)
 
     # save processed satpig
     processed_satpig_path = os.path.join(satpig_folder, rf"{satpig_file}.h5")
-    df.to_hdf(processed_satpig_path, key='test', mode='w', complevel=1)
-
+    df[['abs_demand', 'pct_demand']].to_hdf(processed_satpig_path,key="/data/OD",format = 'fixed', complevel=1)
+    df = df.reset_index()
+    df.drop(['abs_demand', 'pct_demand', 'n_node','o', 'd', 'uc','total_links'], axis=1, inplace=True)
+    df = loading.make_links(df)
+    df.set_index(['route','link_id'],inplace = True)
+    df[['link_order_id']].to_hdf(processed_satpig_path, key="/data/route",format = 'fixed', complevel=1)
+    df = df.reset_index()
+    df = df[['link_id','a','b']].drop_duplicates()
+    df.set_index(['link_id'],inplace = True)
+    df[['a,b']].to_hdf(processed_satpig_path, key="/data/link",format = 'fixed', complevel=1)
     print(rf"Satpig processing completed for {year}, {scenario}, {tp}, {uc}!")
 
 def main():

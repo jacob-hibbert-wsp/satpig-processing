@@ -1,15 +1,11 @@
 import pandas as pd 
-import numpy as np
-import h5py
-import sys
-from caf.toolkit.concurrency import multiprocess
 import re
 #filename = r"C:\Users\JacobHibbert\Downloads\NoHAM_QCR_DM_High_2038_TS1_v107_SatPig_uc1.csv"
 filename = r"G:\raw_data\4001, 4008, 4019, 4026 - Highway OD flows\raw_data\Satpig\QCR\2038\Core\NoHAM_QCR_DM_Core_2038_TS1_v107_SatPig_uc2.csv"
 def add_unique_id(df, id_column_name, columns_to_groupby=None):
 
     df.reset_index(drop=True, inplace=True)  # Reset the index in place
-    """
+    '''
     Assigns a unique ID to each row in the DataFrame based on the unique combinations of values in specified columns.
 
     Parameters:
@@ -20,7 +16,7 @@ def add_unique_id(df, id_column_name, columns_to_groupby=None):
 
     Returns:
     - df (DataFrame): The DataFrame with unique IDs added.
-    """
+    '''
     if columns_to_groupby is None:
             df[id_column_name] = df.index + 1  # Assign unique IDs starting from 1
     else:
@@ -51,7 +47,9 @@ def split_string_columns(df, column_name, n, cols: list):
 
 def make_links(df_int):
     df_int['Nodes'] = df_int['Nodes'].str.split(',')
+    print('split nodes')
     df_int= df_int.explode('Nodes')
+    print('exploded nodes')
     df_int['b'] = df_int.groupby('route')['Nodes'].shift(-1)
     # Drop rows with NaN values in column 'b'
     df_int = df_int.dropna(subset=['b'])
@@ -91,18 +89,19 @@ def read_satpig(path_to_satpig, include_connectors: bool = True):
     df = pd.read_csv(path_to_satpig, sep=';', names=['dummy'])
     df = split_string_columns(df, 'dummy', 7, cols)
     df['Nodes'] = df['Nodes'].apply(remove_extra_commas)
-    df['total_links'] = df['n_node']-1
-    #uc = df['uc'].unique()[0]
+    df['total_links'] = df['n_node']-1    #uc = df['uc'].unique()[0]
     df.set_index(['o','d','route','uc', 'total_links'], inplace=True)
     print(df.dtypes)
-    h5File = r"C:\Users\JacobHibbert\Downloads\NoHAM_QCR_DM_Core_2038_TS1_v107_SatPig_uc2_test.h5"
+    h5File = r"G:\raw_data\4001, 4008, 4019, 4026 - Highway OD flows\raw_data\Satpig\SLA New Format\NoHAM_QCR_DM_Core_2038_TS1_v107_SatPig_uc2_test.h5"
     df[['abs_demand', 'pct_demand']].to_hdf(h5File, key="/data/d1",format = 'fixed', complevel=1)#,data_columns = ['o','d','route','uc','abs_demand', 'pct_demand', 'total_links'], errors='ignore', index = False)
-    df[['abs_demand', 'pct_demand']].to_csv(r"C:\Users\JacobHibbert\Downloads\NoHAM_QCR_DM_Core_2038_TS1_v107_SatPig_uc2.csv")
+    df[['abs_demand', 'pct_demand']].to_csv(r"G:\raw_data\4001, 4008, 4019, 4026 - Highway OD flows\raw_data\Satpig\SLA New Format\NoHAM_QCR_DM_Core_2038_TS1_v107_SatPig_uc2.csv")
+    print('OD Done!')
     df = df.reset_index()
     df.drop(['abs_demand', 'pct_demand', 'n_node','o', 'd', 'uc','total_links'], axis=1, inplace=True)
     df = make_links(df)
     df.set_index(['route','link_id'],inplace = True)
     df[['link_order_id']].to_hdf(h5File, key="/data/d2",format = 'fixed', complevel=1)#,data_columns = ['route','link_id','link_order_id'], errors='ignore', index = False)
+    print('route done')
     df = df.reset_index()
     df = df[['link_id','a','b']].drop_duplicates()
     df.set_index(['link_id'],inplace = True)
