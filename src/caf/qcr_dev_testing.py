@@ -4,21 +4,27 @@ import h5py
 import sys
 from caf.toolkit.concurrency import multiprocess
 import re
-filename = r"C:\Users\JacobHibbert\Downloads\NoHAM_QCR_DM_Core_2038_TS1_v107_SatPig_uc2.csv"
+#filename = r"C:\Users\JacobHibbert\Downloads\NoHAM_QCR_DM_High_2038_TS1_v107_SatPig_uc1.csv"
+filename = r"G:\raw_data\4001, 4008, 4019, 4026 - Highway OD flows\raw_data\Satpig\QCR\2038\Core\NoHAM_QCR_DM_Core_2038_TS1_v107_SatPig_uc2.csv"
+def add_unique_id(df, id_column_name, columns_to_groupby=None):
 
-def add_unique_id(df, id_column_name):
+    df.reset_index(drop=True, inplace=True)  # Reset the index in place
     """
-    Assigns a unique ID to each row in the DataFrame based on the index.
+    Assigns a unique ID to each row in the DataFrame based on the unique combinations of values in specified columns.
 
     Parameters:
     - df (DataFrame): The DataFrame to which unique IDs will be added.
     - id_column_name (str): The name of the column to store the unique IDs.
+    - columns_to_groupby (list, optional): A list of column names whose unique combinations of values will be used to generate the IDs.
+      If None, all columns except the ID column will be used. Default is None.
 
     Returns:
     - df (DataFrame): The DataFrame with unique IDs added.
     """
-    df.reset_index(drop=True, inplace=True)  # Reset the index in place
-    df[id_column_name] = df.index + 1  # Assign unique IDs starting from 1
+    if columns_to_groupby is None:
+            df[id_column_name] = df.index + 1  # Assign unique IDs starting from 1
+    else:
+        df[id_column_name] = df.groupby(columns_to_groupby).ngroup() + 1
     return df
 def convert_string(s):
     try:
@@ -42,8 +48,8 @@ def split_string_columns(df, column_name, n, cols: list):
     df[cols[:-1]] = df[cols[:-1]].apply(pd.to_numeric, downcast='float')
     df = add_unique_id(df, 'route')
     return df
+
 def make_links(df_int):
-    df_int.drop(['abs_demand', 'pct_demand', 'n_node','o', 'd', 'uc','total_links'], axis=1, inplace=True)
     df_int['Nodes'] = df_int['Nodes'].str.split(',')
     df_int= df_int.explode('Nodes')
     df_int['b'] = df_int.groupby('route')['Nodes'].shift(-1)
@@ -51,9 +57,10 @@ def make_links(df_int):
     df_int = df_int.dropna(subset=['b'])
     df_int = df_int.rename(columns={'Nodes': 'a'})
     df_int['link_order_id'] = df_int.groupby('route').cumcount() + 1
-    df_int = add_unique_id(df_int, 'link_id')
+    df_int = add_unique_id(df_int, 'link_id', ['a','b'])
     df_int = df_int.apply(pd.to_numeric, downcast='integer')
     return df_int   
+
 def internal_multi(df_int, i):
     df_int.drop('n_node', axis=1, inplace=True)
     df_int['Nodes'] = df_int['Nodes'].str.split(',')
@@ -86,12 +93,20 @@ def read_satpig(path_to_satpig, include_connectors: bool = True):
     df['Nodes'] = df['Nodes'].apply(remove_extra_commas)
     df['total_links'] = df['n_node']-1
     #uc = df['uc'].unique()[0]
+    df.set_index(['o','d','route','uc', 'total_links'], inplace=True)
+    print(df.dtypes)
     h5File = r"C:\Users\JacobHibbert\Downloads\NoHAM_QCR_DM_Core_2038_TS1_v107_SatPig_uc2_test.h5"
-    df.to_hdf(h5File, key="/data/d1",format = 'table',data_columns = ['o','d','route','uc','abs_demand', 'pct_demand', 'total_links'], errors='ignore', index = False)
-    
+    df[['abs_demand', 'pct_demand']].to_hdf(h5File, key="/data/d1",format = 'fixed', complevel=1)#,data_columns = ['o','d','route','uc','abs_demand', 'pct_demand', 'total_links'], errors='ignore', index = False)
+    df[['abs_demand', 'pct_demand']].to_csv(r"C:\Users\JacobHibbert\Downloads\NoHAM_QCR_DM_Core_2038_TS1_v107_SatPig_uc2.csv")
+    df = df.reset_index()
+    df.drop(['abs_demand', 'pct_demand', 'n_node','o', 'd', 'uc','total_links'], axis=1, inplace=True)
     df = make_links(df)
-    df.to_hdf(h5File, key="/data/d2",format = 'table',data_columns = ['route','link_id','link_order_id'], errors='ignore', index = False)
-    df.to_hdf(h5File, key="/data/d3",format = 'table',data_columns = ['link_id','a','b'], errors='ignore', index = False)
+    df.set_index(['route','link_id'],inplace = True)
+    df[['link_order_id']].to_hdf(h5File, key="/data/d2",format = 'fixed', complevel=1)#,data_columns = ['route','link_id','link_order_id'], errors='ignore', index = False)
+    df = df.reset_index()
+    df = df[['link_id','a','b']].drop_duplicates()
+    df.set_index(['link_id'],inplace = True)
+    df.to_hdf(h5File, key="/data/d3",format = 'fixed', complevel=1)#,data_columns = ['link_id','a','b'], errors='ignore', index = False)
     return df
 
 df = read_satpig(filename)
