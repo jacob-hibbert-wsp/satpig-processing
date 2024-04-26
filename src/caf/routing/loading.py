@@ -58,7 +58,9 @@ def make_links(df_int):
     df_int = df_int.rename(columns={'Nodes': 'a'})
     df_int['link_order_id'] = df_int.groupby('route').cumcount() + 1
     df_int = add_unique_id(df_int, 'link_id', ['a','b'])
+    print('link id generated')
     df_int = df_int.apply(pd.to_numeric, downcast='integer')
+    print('downcasted')
     return df_int  
 
 def read_satpig(path_to_satpig, include_connectors: bool = True):

@@ -66,17 +66,27 @@ def call_satpig_processing(home_folder: str,
     df.set_index(['o','d','route','uc', 'total_links'], inplace=True)
 
     # save processed satpig
-    processed_satpig_path = os.path.join(satpig_folder, rf"{satpig_file}.h5")
+    processed_satpig_path = os.path.join(r"C:\Users\Ferrari\JacobHibbert_Secondment\satpit_output", rf"{satpig_file}.h5")
     df[['abs_demand', 'pct_demand']].to_hdf(processed_satpig_path,key="/data/OD",format = 'fixed', complevel=1)
+    print('OD Done')
     df = df.reset_index()
     df.drop(['abs_demand', 'pct_demand', 'n_node','o', 'd', 'uc','total_links'], axis=1, inplace=True)
     df = loading.make_links(df)
+    print(df[['route', 'link_id', 'link_order_id']])
     df.set_index(['route','link_id'],inplace = True)
-    df[['link_order_id']].to_hdf(processed_satpig_path, key="/data/route",format = 'fixed', complevel=1)
+    df[['link_order_id']].to_hdf(processed_satpig_path, key="/data/Route",format = 'fixed', complevel=1)
+    print('Route Done')
+    print(df.columns)
     df = df.reset_index()
-    df = df[['link_id','a','b']].drop_duplicates()
+    df.drop(['route', 'link_order_id'],axis=1, inplace=True)
+    print(df)
+    df = df[['link_id','a','b']].drop_duplicates(subset=['link_id', 'a', 'b'])
+    df = df.reset_index()
+    df = df.sort_values(by='link_id')
+    print(df)
     df.set_index(['link_id'],inplace = True)
-    df[['a,b']].to_hdf(processed_satpig_path, key="/data/link",format = 'fixed', complevel=1)
+    df[['a','b']].to_hdf(processed_satpig_path, key="/data/link",format = 'fixed', complevel=1)#,data_columns = ['link_id','a','b'], errors='ignore', index = False)
+    print('link done')
     print(rf"Satpig processing completed for {year}, {scenario}, {tp}, {uc}!")
 
 def main():
@@ -90,7 +100,7 @@ def main():
                                            scenario,
                                            tp,
                                            uc)
-                    except:
+                    except Exception:
                         print(rf"Could not produce: {year}, {scenario}, {tp}, {uc}!")
 
 if __name__=="__main__":
