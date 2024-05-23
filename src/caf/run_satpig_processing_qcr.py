@@ -66,7 +66,8 @@ def call_satpig_processing(home_folder: str,
     df.set_index(['o','d','route','uc', 'total_links'], inplace=True)
 
     # save processed satpig
-    processed_satpig_path = os.path.join(r"C:\Users\Ferrari\JacobHibbert_Secondment\satpit_output", rf"{satpig_file}.h5")
+    processed_satpig_path = os.path.join(r"C:\Users\genie\JacobHibbert_Secondment\satpig_output", rf"{satpig_file}.h5")
+    print("saving")
     df[['abs_demand', 'pct_demand']].to_hdf(processed_satpig_path,key="/data/OD",format = 'fixed', complevel=1)
     print('OD Done')
     df = df.reset_index()

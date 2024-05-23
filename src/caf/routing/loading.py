@@ -69,10 +69,16 @@ def read_satpig(path_to_satpig, include_connectors: bool = True):
     This can be translated/manipulated into different formats.
     """
     cols = ['o', 'd', 'uc', 'route', 'abs_demand', 'pct_demand', 'n_node', 'Nodes']
+    print("read in")
     df = pd.read_csv(path_to_satpig, sep=';', names=['dummy'])
     df = split_string_columns(df, 'dummy', 7, cols)
+    print(df.head())
+    df.drop(['route'], inplace=True, axis =1)
+    df = df.groupby(['o', 'd', 'uc', 'n_node', 'Nodes']).agg({'abs_demand':'sum', 'pct_demand':'sum'}).reset_index()
+    print(df)
     df = add_unique_id(df, 'route')
     df['Nodes'] = df['Nodes'].apply(remove_extra_commas)
+    print(df.head())
     df['total_links'] = df['n_node']-1
     return(df)
 
