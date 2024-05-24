@@ -1,0 +1,6 @@
+# python=3.12
+numpy>=1.26
+pandas>=2.2
+pytables>=3.9
+tqdm>=4.66
+caf.toolkit>=0.7.1
