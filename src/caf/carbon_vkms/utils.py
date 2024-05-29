@@ -5,6 +5,7 @@
 
 ##### IMPORTS #####
 
+import collections.abc
 import logging
 import os
 import pathlib
@@ -42,9 +43,7 @@ def getenv_bool(key: str, default: bool) -> bool:
     if matched is not None:
         return False
 
-    raise ValueError(
-        f'non-boolean value given for environment variable {key} = "{value}"'
-    )
+    raise ValueError(f'non-boolean value given for environment variable {key} = "{value}"')
 
 
 def simple_warning_format(
@@ -58,3 +57,39 @@ def simple_warning_format(
     del args, kwargs
     path = pathlib.Path(filename)
     return f"{path.parent.name}/{path.name}:{lineno}: {category.__name__}: {message}"
+
+
+def shorten_list(values: collections.abc.Sequence, length: int, fmt_str: str = "{}") -> str:
+    """Convert list to comma-separated string for display purposes.
+
+    Any lists longer than `length` will show the start and end values
+    but skip over the middle ones. The number of start and end values
+    shown is equal to half the `length` (rounded down).
+
+    Examples
+    --------
+    >>> shorten_list(range(100), 10)
+    '0, 1, 2, 3, 4 ... 95, 96, 97, 98, 99'
+
+    >>> shorten_list(range(5), 5)
+    '0, 1, 2, 3, 4'
+
+    >>> shorten_list(range(5), 3)
+    '0 ... 4'
+    """
+    if length <= 1:
+        raise ValueError(f"length should be a integer > 1 not {length}")
+
+    if len(values) <= length:
+        return ", ".join(fmt_str.format(i) for i in values)
+
+    half = length // 2
+
+    if half == 0:
+        half = 1
+
+    return (
+        ", ".join(fmt_str.format(i) for i in values[:half])
+        + " ... "
+        + ", ".join(fmt_str.format(i) for i in values[-half:])
+    )

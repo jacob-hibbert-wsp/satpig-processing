@@ -3,10 +3,10 @@
 
 ##### IMPORTS #####
 
-import logging
-import warnings
-import pathlib
 import datetime as dt
+import logging
+import pathlib
+import warnings
 
 import caf.toolkit as ctk
 
@@ -32,14 +32,12 @@ def main() -> None:
 
     h5_path = inputs_folder / "NoHAM_QCR_DM_Core_2038_TS1_v107_SatPig_uc2_test.h5"
     links_data_path = inputs_folder / "dummy_links_lookup_and_data.csv"
-    lad_lookup_path = inputs_folder / "dummy_lad_lookup.csv"
 
     with ctk.LogHelper("", ctk.ToolDetails("satpig_test", "0.1.0"), log_file=log_file):
         vkms.process_hdf(
             h5_path,
             links_data_path,
             working_directory,
-            lad_lookup_path,
             zone_filter=list(range(10)),
         )
 

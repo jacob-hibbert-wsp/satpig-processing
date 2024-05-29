@@ -5,7 +5,6 @@
 
 ##### IMPORTS #####
 
-import datetime as dt
 import itertools
 import logging
 import math
@@ -16,7 +15,6 @@ import time
 import warnings
 from typing import Optional, Sequence
 
-import caf.toolkit as ctk
 import numpy as np
 import pandas as pd
 import tqdm
@@ -158,8 +156,7 @@ def _check_merge_indicator(
     counts = dict(np.column_stack(np.unique(merge_column, return_counts=True)))
 
     msg = f"Merged {right_name} into {left_name} and found rows in: " + ", ".join(
-        f"{i} = {int(j):,} ({int(j) / len(merge_column):.1%})"
-        for i, j in counts.items()
+        f"{i} = {int(j):,} ({int(j) / len(merge_column):.1%})" for i, j in counts.items()
     )
 
     if set(counts.keys()) != {"both"}:
@@ -272,7 +269,7 @@ def _aggregate_route_zones(
     store: pd.HDFStore,
     route_zones: pd.DataFrame,
     zones: np.ndarray,
-    lad_lookup: dict[int, int],
+    through_lookup: dict[int, int],
     output_path: pathlib.Path,
     header: bool = True,
 ):
@@ -360,12 +357,8 @@ def _aggregate_route_zones(
         od, how="left", validate="1:1", left_index=True, right_index=True
     )
 
-    aggregation["through_vkms"] = (
-        aggregation["abs_demand"] * aggregation["sum_distance"]
-    )
-    aggregation["route_vkms"] = (
-        aggregation["abs_demand"] * aggregation["route_sum_distance"]
-    )
+    aggregation["through_vkms"] = aggregation["abs_demand"] * aggregation["sum_distance"]
+    aggregation["route_vkms"] = aggregation["abs_demand"] * aggregation["route_sum_distance"]
 
     # Create banding columns
     banding_columns = []
@@ -387,8 +380,7 @@ def _aggregate_route_zones(
 
         col_name = f"{name} - route_vkms"
         aggregation[col_name] = (
-            aggregation.loc[mask, "route_sum_distance"]
-            * aggregation.loc[mask, "abs_demand"]
+            aggregation.loc[mask, "route_sum_distance"] * aggregation.loc[mask, "abs_demand"]
         ).sum()
         banding_columns.append(col_name)
 
@@ -421,14 +413,30 @@ def _aggregate_route_zones(
     od_agg.to_csv(path, **csv_kwargs)
     LOG.info("Written: %s", path)
 
-    # Convert from through zone to through LADs, assuming all zones
-    # are completely within a single LAD
+    # Convert through zones, assuming all zones are completely within another i.e many-to-one
     aggregation = aggregation.reset_index()
-    aggregation["through"] = aggregation["through"].replace(lad_lookup)
+    if len(through_lookup) == 0:
+        LOG.info("Through zones using same zoning as origin and destination")
 
-    aggregation = aggregation.groupby(["origin", "destination", "through"]).agg(
-        agg_methods
-    )
+    else:
+        missing = aggregation.loc[
+            ~aggregation["through"].isin(through_lookup), "through"
+        ].unique()
+        if len(missing) > 0:
+            warnings.warn(
+                f"{len(missing):,} unique zones in through zones not found"
+                f" in lookup: {utils.shorten_list(missing, 20)}",
+                RuntimeWarning,
+            )
+
+        LOG.info(
+            "Converting through zones using lookup with %s values: %s",
+            len(through_lookup),
+            through_lookup,
+        )
+        aggregation["through"] = aggregation["through"].replace(through_lookup)
+
+    aggregation = aggregation.groupby(["origin", "destination", "through"]).agg(agg_methods)
     aggregation.to_csv(output_path, **csv_kwargs)
     LOG.info("Written: %s", output_path)
 
@@ -440,7 +448,7 @@ def process_hdf(
     path: pathlib.Path,
     links_data_path: pathlib.Path,
     working_directory: pathlib.Path,
-    lad_lookup_path: pathlib.Path,
+    through_lookup_path: Optional[pathlib.Path] = None,
     chunk_size: int = 100,
     zone_filter: Optional[Sequence[int]] = None,
 ) -> None:
@@ -448,13 +456,17 @@ def process_hdf(
     LOG.info("Copying SATPig HDF file into working directory: %s", working_directory)
     path = pathlib.Path(shutil.copy2(path, working_directory))
 
-    lad_lookup_data = pd.read_csv(
-        lad_lookup_path, usecols=["zone", "lad"], dtype=int, index_col="zone"
-    )
-    if lad_lookup_data.index.has_duplicates:
-        raise ValueError("LAD lookup has duplicate values in the zone column")
+    if through_lookup_path is not None:
+        through_lookup_data = pd.read_csv(
+            through_lookup_path, usecols=["zone", "lad"], dtype=int, index_col="zone"
+        )
+        if through_lookup_data.index.has_duplicates:
+            raise ValueError("Through lookup has duplicate values in the zone column")
 
-    lad_lookup: dict[int, int] = lad_lookup_data["lad"].to_dict()
+        through_lookup: dict[int, int] = through_lookup_data["lad"].to_dict()
+
+    else:
+        through_lookup = {}
 
     LOG.info("Reading: %s", path.name)
     with pd.HDFStore(path, "r+") as store:
@@ -476,7 +488,7 @@ def process_hdf(
                 store,
                 route_zones,
                 np.array(chunk),
-                lad_lookup,
+                through_lookup,
                 working_directory / "aggregated_routes.csv",
                 header=i == 0,
             )
