@@ -26,7 +26,7 @@ import utils
 ##### CONSTANTS #####
 
 LOG = logging.getLogger(__name__)
-SATPIG_HDF_GROUPS = {"od": "data/d1", "routes": "data/d2", "links": "data/d3"}
+SATPIG_HDF_GROUPS = {"od": "data/OD", "routes": "data/Route", "links": "data/link"}
 LINK_DATA_COLUMNS = ["speed", "distance"]
 LINK_NODE_COLUMNS = ["a", "b"]
 
@@ -195,22 +195,32 @@ def update_links_data(store: pd.HDFStore, link_path: pathlib.Path) -> pd.Series:
         index_col=LINK_NODE_COLUMNS,
         usecols=[*LINK_NODE_COLUMNS, "zone", *LINK_DATA_COLUMNS],
     )
-    LOG.info(links.head())
-    LOG.info(lookup.head())
-    # Load link lookup and set link zones
+
+    print(lookup.index.duplicated().sum())
+    LOG.info(links.index.duplicated().any())
+
     links = links.merge(
         lookup,
         left_on=LINK_NODE_COLUMNS,
         right_index=True,
-        how="outer",
+        how="left", 
         validate="1:1",
-        indicator=True,
-    )
+        indicator=True,)
+     # Convert metres to km
+    links["distance"] = links["distance"] / 1000
     _check_merge_indicator(links, "SATPig", "Links Data")
+    links['zone'] = links['zone'].fillna(-1)
+    #flllna(-1)
+    #log message with number of zones filled with -1
+    #then fix lookup
+    if links.duplicated(subset= ['a', 'b']).any():
+        links.drop_duplicates( subset= ['a', 'b'], keep='first', inplace = True)
+        LOG.info(r'dropping duplicate in a and b columns')
     store.put(SATPIG_HDF_GROUPS["links"], links, format="fixed", complevel=1)
     LOG.info("Updated links data in group '%s'", SATPIG_HDF_GROUPS["links"])
-
-    return links["zone"]
+    print(links)
+    print(links.index.duplicated())
+    return links["zone"].astype(int)
 
 
 def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
@@ -222,7 +232,8 @@ def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
         "Loaded routes in %s, now joining zones this may take some time",
         timer.time_taken(True),
     )
-
+    print(routes)
+    print(zone_lookup.index.duplicated().sum())
     # Join links to routes to get all routes relevant for single MSOA
     route_zones = routes.reset_index().merge(
         zone_lookup,
@@ -247,6 +258,7 @@ def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
         .agg(["first", "last", tuple])
     )
     route_zones.columns = route_zones.columns.droplevel(0)
+    print(route_zones)
     route_zones.rename(
         columns={
             "": "route_id",
@@ -472,6 +484,8 @@ def process_hdf(
         LOG.info(str(store.info()))
 
         zone_lookup = update_links_data(store, links_data_path)
+
+
         route_zones = routes_by_zone(store, zone_lookup)
         route_zones["done_row"] = False
 
@@ -497,16 +511,17 @@ def process_hdf(
 def main() -> None:
     warnings.formatwarning = _simple_warning_format
 
-    inputs_folder = pathlib.Path(r"B:\QCR- assignments\Carbon VKMs\Inputs")
-    output_folder = pathlib.Path(r"B:\QCR- assignments\Carbon VKMs\Outputs")
+    inputs_folder = pathlib.Path(r"B:\QCR- assignments\03.Assignments\h5files\BaseYearFiles")
+    output_folder = pathlib.Path(r"B:\QCR- assignments\03.Assignments\h5files\outputs")
     working_directory = output_folder / f"VKMs-{dt.datetime.today():%Y%m%d}"
     working_directory.mkdir(exist_ok=True)
     log_file = working_directory / "satpig_tests.log"
 
-    h5_path = inputs_folder / "NoHAM_QCR_DM_Core_2038_TS1_v107_SatPig_uc2_test.h5"
-    links_data_path = inputs_folder / "dummy_links_lookup_and_data.csv"
-    lad_lookup_path = inputs_folder / "dummy_lad_lookup.csv"
-
+    h5_path = inputs_folder / "RotherhamBase_i8c_2018_TS1_v107_SatPig_uc1.h5"
+    print(h5_path)
+    links_data_path = inputs_folder / "2018_link_table_new_2.csv"
+    lad_lookup_path = inputs_folder / "MSOA11_WD21_LAD21_EW_LU_1.csv"
+    print(working_directory)
     with ctk.LogHelper("", ctk.ToolDetails("satpig_test", "0.1.0"), log_file=log_file):
         process_hdf(
             h5_path,
