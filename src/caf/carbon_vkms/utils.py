@@ -10,6 +10,7 @@ import logging
 import os
 import pathlib
 import re
+import sys
 
 ##### CONSTANTS #####
 
@@ -93,3 +94,46 @@ def shorten_list(values: collections.abc.Sequence, length: int, fmt_str: str = "
         + " ... "
         + ", ".join(fmt_str.format(i) for i in values[-half:])
     )
+
+
+def readable_size(size: int | float) -> str:
+    """Convert `size` in bytes into string with units.
+
+    Will convert the size to largest units where the
+    value is <= 1000 e.g. 1,000,001 bytes -> "1.0MB".
+    """
+    for prefix in ["", "K", "M", "G", "T", "P"]:
+        if size <= 1000:
+            return f"{size:.1f}{prefix}B"
+        size /= 1000
+
+    return "> 1000PB"
+
+
+def display_memory_usage(**kwargs) -> str:
+    """Format memory usage of all kwargs into str table.
+
+    Output format is sorted by size and looks like:
+    keyword_one   : 5.0GB
+    keyword_two   : 163.4MB
+    keyword_three : 256.1KB
+    """
+    messages = {}
+
+    length = max(len(i) for i in kwargs)
+
+    for nm, value in kwargs.items():
+        try:
+            size = sys.getsizeof(value)
+            size_str = readable_size(size)
+        except Exception as exc:  # pylint: disable=broad-except
+            LOG.error("Error getting size of %s - %s", nm, f"{exc.__class__.__name__}: {exc}")
+            size = sys.maxsize
+            size_str = "error"
+
+        msg = f"{nm:<{length}.{length}} : {size_str}"
+        messages[msg] = size
+
+    messages = sorted(messages, key=messages.get, reverse=True)
+
+    return "\n".join(messages)

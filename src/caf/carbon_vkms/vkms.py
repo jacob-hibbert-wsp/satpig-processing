@@ -24,7 +24,7 @@ from carbon_vkms import utils
 ##### CONSTANTS #####
 
 LOG = logging.getLogger(__name__)
-SATPIG_HDF_GROUPS = {"od": "data/d1", "routes": "data/d2", "links": "data/d3"}
+SATPIG_HDF_GROUPS = {"od": "data/OD", "routes": "data/Route", "links": "data/link"}
 LINK_DATA_COLUMNS = ["speed", "distance"]
 LINK_NODE_COLUMNS = ["a", "b"]
 
@@ -180,19 +180,42 @@ def update_links_data(store: pd.HDFStore, link_path: pathlib.Path) -> pd.Series:
         usecols=[*LINK_NODE_COLUMNS, "zone", *LINK_DATA_COLUMNS],
     )
 
+    duplicates = lookup.index.duplicated().sum()
+    if duplicates > 0:
+        raise ValueError(f"{duplicates} duplicate links found in links lookup")
+
     # Load link lookup and set link zones
     links = links.merge(
         lookup,
         left_on=LINK_NODE_COLUMNS,
         right_index=True,
-        how="outer",
+        how="left",
         validate="1:1",
         indicator=True,
     )
+    _check_merge_indicator(links, "SATPig", "Links Data")
+
+    ab_duplicates = links.duplicated(LINK_NODE_COLUMNS, keep="first").sum()
+    id_duplicates = links.index.duplicated(keep="first").sum()
+    if ab_duplicates > 0 or id_duplicates > 0:
+        warnings.warn(
+            f"found {ab_duplicates:,} duplicate a, b nodes"
+            f" and {id_duplicates:,} duplicate link IDs",
+            RuntimeWarning,
+        )
+
+    if links[lookup.columns].isna().any(axis=None):
+        LOG.error(
+            "Nan values found in links data after joining lookup:\n%s",
+            links[lookup.columns].isna().sum(),
+        )
+        # TODO Raise error if columns have missing values
+        LOG.warning("Filling Nan values with -1")
+        links = links.fillna(-1)
+
     # Convert metres to km
     links["distance"] = links["distance"] / 1000
 
-    _check_merge_indicator(links, "SATPig", "Links Data")
     store.put(SATPIG_HDF_GROUPS["links"], links, format="fixed", complevel=1)
     LOG.info("Updated links data in group '%s'", SATPIG_HDF_GROUPS["links"])
 
@@ -210,10 +233,10 @@ def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
     )
 
     # Join links to routes to get all routes relevant for single MSOA
-    route_zones = routes.reset_index().merge(
+    route_zones = routes.merge(
         zone_lookup,
         how="left",
-        left_on="link_id",
+        left_index=True,
         right_index=True,
         validate="m:1",
         indicator=True,
