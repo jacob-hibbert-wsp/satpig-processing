@@ -522,13 +522,17 @@ def main() -> None:
     links_data_path = inputs_folder / "2018_link_table_new_2.csv"
     lad_lookup_path = inputs_folder / "MSOA11_WD21_LAD21_EW_LU_1.csv"
     print(working_directory)
+    filterpath = r"B:\QCR- assignments\03.Assignments\h5files\YNY\MSOA11_WD21_LAD21_EW_LU_YNY_CA.csv"
+    zone_filter = pd.read_csv(filterpath, usecols=['zone'])['zone'].tolist()
+
     with ctk.LogHelper("", ctk.ToolDetails("satpig_test", "0.1.0"), log_file=log_file):
         process_hdf(
             h5_path,
             links_data_path,
             working_directory,
             lad_lookup_path,
-            zone_filter=list(range(10)),
+            chunk_size = 60,
+            zone_filter=zone_filter,
         )
 
     # TODO Dump to carbon drive A drive

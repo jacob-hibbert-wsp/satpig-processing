@@ -11,8 +11,10 @@ Lookup.rename(columns={'msoa2011_id':'zone', 'A':'a', 'B':'b'}, inplace=True)
 print(Lookup)
 Lookup=Lookup.loc[Lookup.groupby(['a', 'b'])['factor'].idxmax()]
 print(Lookup)
-links = pd.merge(Lookup,links, on = ['a', 'b'], validate="1:1")
-print(links)
+links = pd.merge(Lookup,links, on = ['a', 'b'], validate="1:1", how="left")
+print(links['zone'])
+links['speed'] =links['speed'].fillna(48.0)
+links['distance'] = links['distance'].fillna(1)
 links = links[['a','b','zone', 'speed', 'distance']]
 
 ############### merging converting zones to integers ############################################
