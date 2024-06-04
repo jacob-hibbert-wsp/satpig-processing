@@ -352,20 +352,26 @@ def _aggregate_route_zones(
         route_data.to_csv(path, index=False, **csv_kwargs)
         LOG.info("Written: %s", path.name)
 
+    def distance_weighted_mean(data: pd.Series) -> float:
+        return np.average(data, weights=route_data.loc[data.index, "distance"])
+
     # Calculate aggregations across whole routes and for specific through zones separately
     route_totals = route_data.groupby(["route_id", "origin", "destination"])[
         LINK_DATA_COLUMNS
-    ].aggregate({"speed": ["mean", "median"], "distance": "sum"})
-    route_totals.columns = [f"route_{j}_{i}" for i, j in route_totals.columns]
+    ].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
+    route_totals.columns = [f"route_{i}" for i, _ in route_totals.columns]
 
     path = output_path.with_name(output_path.stem + "-route_summary.csv")
     route_totals.to_csv(path, **csv_kwargs)
     LOG.info("Written: %s", path)
 
+    def distance_weighted_mean(data: pd.Series) -> float:  # pylint: disable=function-redefined
+        return np.average(data, weights=route_data.loc[data.index, "distance"])
+
     aggregation = route_data.groupby(["route_id", "origin", "destination", "through"])[
         LINK_DATA_COLUMNS
-    ].aggregate({"speed": ["mean", "median"], "distance": ["mean", "sum"]})
-    aggregation.columns = [f"{j}_{i}" for i, j in aggregation.columns]
+    ].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
+    aggregation.columns = [f"{j}_{i}".replace("sum_", "") for i, j in aggregation.columns]
 
     # Join Route totals
     aggregation = aggregation.merge(
@@ -380,8 +386,8 @@ def _aggregate_route_zones(
         od, how="left", validate="1:1", left_index=True, right_index=True
     )
 
-    aggregation["through_vkms"] = aggregation["abs_demand"] * aggregation["sum_distance"]
-    aggregation["route_vkms"] = aggregation["abs_demand"] * aggregation["route_sum_distance"]
+    aggregation["through_vkms"] = aggregation["abs_demand"] * aggregation["distance"]
+    aggregation["route_vkms"] = aggregation["abs_demand"] * aggregation["route_distance"]
 
     # Create banding columns
     banding_columns = []
@@ -390,27 +396,27 @@ def _aggregate_route_zones(
         if i == -np.inf:
             name = f"< {j}km"
         elif j == np.inf:
-            name = f"> {i}km"
+            name = f">= {i}km"
         else:
             name = f"{i} - {j}km"
 
-        mask = (aggregation["route_sum_distance"] >= i) & (
-            aggregation["route_sum_distance"] < j
+        mask = (aggregation["route_distance"] >= i) & (
+            aggregation["route_distance"] < j
         )
         col_name = f"{name} - trips"
-        aggregation[col_name] = aggregation.loc[mask, "abs_demand"].sum()
+        aggregation.loc[mask, col_name] = aggregation.loc[mask, "abs_demand"]
         banding_columns.append(col_name)
 
         col_name = f"{name} - route_vkms"
-        aggregation[col_name] = (
-            aggregation.loc[mask, "route_sum_distance"] * aggregation.loc[mask, "abs_demand"]
-        ).sum()
+        aggregation.loc[mask, col_name] = (
+            aggregation.loc[mask, "route_distance"] * aggregation.loc[mask, "abs_demand"]
+        )
         banding_columns.append(col_name)
 
         col_name = f"{name} - through_vkms"
-        aggregation[col_name] = (
-            aggregation.loc[mask, "sum_distance"] * aggregation.loc[mask, "abs_demand"]
-        ).sum()
+        aggregation.loc[mask, col_name] = (
+            aggregation.loc[mask, "distance"] * aggregation.loc[mask, "abs_demand"]
+        )
         banding_columns.append(col_name)
 
     path = output_path.with_name(output_path.stem + "-routes.csv")
@@ -421,12 +427,12 @@ def _aggregate_route_zones(
         return np.average(data, weights=aggregation.loc[data.index, "abs_demand"])
 
     agg_methods = {
-        "sum_distance": [demand_weighted_mean, "sum"],
+        "distance": [demand_weighted_mean, "sum"],
         "abs_demand": "sum",
         "through_vkms": "sum",
-        "route_vkms": "first",
-        "mean_speed": demand_weighted_mean,
-        **dict.fromkeys(route_totals.columns, "first"),
+        "route_vkms": demand_weighted_mean,
+        "distance_weighted_mean_speed": demand_weighted_mean,
+        **dict.fromkeys(route_totals.columns, demand_weighted_mean),
         **dict.fromkeys(banding_columns, "sum"),
     }
 
