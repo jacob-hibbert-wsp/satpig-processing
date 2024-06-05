@@ -37,6 +37,8 @@ def getenv_bool(key: str, default: bool) -> bool:
     true_pattern = re.compile(r"^\s*(yes|true|[yt1])\s*$", re.I)
     false_pattern = re.compile(r"^\s*(no|false|[nf0])\s*$", re.I)
 
+    print(f"Environment variable {key} = '{value}'")
+
     matched = true_pattern.match(value)
     if matched is not None:
         return True

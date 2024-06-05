@@ -27,6 +27,16 @@ LOG = logging.getLogger(__name__)
 SATPIG_HDF_GROUPS = {"od": "data/OD", "routes": "data/Route", "links": "data/link"}
 LINK_DATA_COLUMNS = ["speed", "distance"]
 LINK_NODE_COLUMNS = ["a", "b"]
+_VKMS_OUTPUT_RENAMING = {
+    "origin": "origin_zone_id",
+    "destination": "destination_zone_id",
+    "through": "through_zone_id",
+    "abs_demand": "trips",
+    "sum_distance": "distance_kms",
+    "through_kms": "vehicle_kms",
+    "speed": "speed_kph",
+}
+_VKM_DISTANCE_BINS = (-np.inf, 1.6, 8.0, 16.1, 40.2, 80.5, np.inf)
 
 VERBOSE_OUTPUTS = utils.getenv_bool("CARBON_VKMS_VERBOSE", False)
 
@@ -211,7 +221,7 @@ def update_links_data(store: pd.HDFStore, link_path: pathlib.Path) -> pd.Series:
         )
         # TODO Raise error if columns have missing values
         LOG.warning("Filling Nan values with -1")
-        links = links.fillna(-1)
+        links["zone"] = links["zone"].fillna(-1)
 
     # Convert metres to km
     links["distance"] = links["distance"] / 1000
@@ -219,7 +229,7 @@ def update_links_data(store: pd.HDFStore, link_path: pathlib.Path) -> pd.Series:
     store.put(SATPIG_HDF_GROUPS["links"], links, format="fixed", complevel=1)
     LOG.info("Updated links data in group '%s'", SATPIG_HDF_GROUPS["links"])
 
-    return links["zone"]
+    return links["zone"].astype(int)
 
 
 def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
@@ -232,6 +242,14 @@ def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
         timer.time_taken(True),
     )
 
+    if zone_lookup.index.has_duplicates:
+        dups = zone_lookup.index[zone_lookup.index.duplicated(keep="first")].unique()
+        warnings.warn(
+            f"{len(dups):,} duplicate zones route IDs found in zone"
+            f" lookup: {utils.shorten_list(dups, 10)}",
+            RuntimeWarning,
+        )
+
     # Join links to routes to get all routes relevant for single MSOA
     route_zones = routes.merge(
         zone_lookup,
@@ -240,13 +258,13 @@ def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
         right_index=True,
         validate="m:1",
         indicator=True,
-    )
+    ).reset_index()
     LOG.info("Done merge in %s", timer.time_taken(True))
     del routes, zone_lookup
     _check_merge_indicator(route_zones, "routes", "link zones")
     LOG.info("Done merge check in %s", timer.time_taken(True))
 
-    route_zones.drop(columns="link_id", inplace=True)
+    route_zones.drop(columns="link_id", inplace=True, errors="ignore")
     route_zones.drop_duplicates(subset=["route", "zone"], inplace=True)
     LOG.info("Done drop duplicates in %s", timer.time_taken(True))
 
@@ -286,6 +304,42 @@ def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
     LOG.info("Generated table in %s, updating file", timer.time_taken(True))
 
     return route_zones
+
+
+def _aggregate_final_grouping(
+    data: pd.DataFrame,
+    agg_columns: list[str],
+    route_columns: list[str],
+    banding_columns: list[str],
+    output_path: pathlib.Path,
+    **csv_kwargs,
+) -> pd.DataFrame:
+    LOG.info("Performing %s aggregation", ", ".join(agg_columns))
+
+    def demand_weighted_mean(data: pd.Series) -> float:
+        return np.average(data, weights=data.loc[data.index, "abs_demand"])
+
+    agg_methods = {
+        "distance": [demand_weighted_mean, "sum"],
+        "abs_demand": "sum",
+        "through_vkms": "sum",
+        "route_vkms": demand_weighted_mean,
+        "speed": demand_weighted_mean,
+        **dict.fromkeys(route_columns, demand_weighted_mean),
+        **dict.fromkeys(banding_columns, "sum"),
+    }
+
+    # Aggregate to just origin, destination (weighted avg. based on demand)
+    aggregation = data.groupby(agg_columns).agg(agg_methods)
+    aggregation.columns = [
+        f"{j}_{i}" if i == "distance" else i for i, j in aggregation.columns
+    ]
+    aggregation.rename(columns=_VKMS_OUTPUT_RENAMING, inplace=True)
+
+    aggregation.to_csv(output_path, **csv_kwargs)
+    LOG.info("Written: %s", output_path)
+
+    return aggregation
 
 
 def _aggregate_route_zones(
@@ -335,12 +389,16 @@ def _aggregate_route_zones(
     ).set_index(["route", "zone"])
 
     # Join links data to zones for aggregation
-    route_data = route_zones.loc[routes_mask, :].merge(
-        links,
-        how="left",
-        left_on=["route_id", "through"],
-        right_index=True,
-        validate="1:m",
+    route_data = (
+        route_zones.loc[routes_mask, :]
+        .merge(
+            links,
+            how="left",
+            left_on=["route_id", "through"],
+            right_index=True,
+            validate="1:m",
+        )
+        .reset_index(drop=True)
     )
     # TODO Check for duplicate routes with same links
 
@@ -359,7 +417,7 @@ def _aggregate_route_zones(
     route_totals = route_data.groupby(["route_id", "origin", "destination"])[
         LINK_DATA_COLUMNS
     ].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
-    route_totals.columns = [f"route_{i}" for i, _ in route_totals.columns]
+    route_totals.columns = [f"route_{i}" for i in route_totals.columns]
 
     path = output_path.with_name(output_path.stem + "-route_summary.csv")
     route_totals.to_csv(path, **csv_kwargs)
@@ -371,7 +429,6 @@ def _aggregate_route_zones(
     aggregation = route_data.groupby(["route_id", "origin", "destination", "through"])[
         LINK_DATA_COLUMNS
     ].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
-    aggregation.columns = [f"{j}_{i}".replace("sum_", "") for i, j in aggregation.columns]
 
     # Join Route totals
     aggregation = aggregation.merge(
@@ -391,8 +448,7 @@ def _aggregate_route_zones(
 
     # Create banding columns
     banding_columns = []
-    bins = (-np.inf, 0, 5, 10, 20, 50, np.inf)
-    for i, j in zip(bins[:-1], bins[1:]):
+    for i, j in zip(_VKM_DISTANCE_BINS[:-1], _VKM_DISTANCE_BINS[1:]):
         if i == -np.inf:
             name = f"< {j}km"
         elif j == np.inf:
@@ -400,9 +456,7 @@ def _aggregate_route_zones(
         else:
             name = f"{i} - {j}km"
 
-        mask = (aggregation["route_distance"] >= i) & (
-            aggregation["route_distance"] < j
-        )
+        mask = (aggregation["route_distance"] >= i) & (aggregation["route_distance"] < j)
         col_name = f"{name} - trips"
         aggregation.loc[mask, col_name] = aggregation.loc[mask, "abs_demand"]
         banding_columns.append(col_name)
@@ -419,28 +473,19 @@ def _aggregate_route_zones(
         )
         banding_columns.append(col_name)
 
-    path = output_path.with_name(output_path.stem + "-routes.csv")
-    aggregation.to_csv(path, **csv_kwargs)
-    LOG.info("Written: %s", path)
+    if VERBOSE_OUTPUTS:
+        path = output_path.with_name(output_path.stem + "-routes.csv")
+        aggregation.to_csv(path, **csv_kwargs)
+        LOG.info("Written: %s", path)
 
-    def demand_weighted_mean(data: pd.Series) -> float:
-        return np.average(data, weights=aggregation.loc[data.index, "abs_demand"])
-
-    agg_methods = {
-        "distance": [demand_weighted_mean, "sum"],
-        "abs_demand": "sum",
-        "through_vkms": "sum",
-        "route_vkms": demand_weighted_mean,
-        "distance_weighted_mean_speed": demand_weighted_mean,
-        **dict.fromkeys(route_totals.columns, demand_weighted_mean),
-        **dict.fromkeys(banding_columns, "sum"),
-    }
-
-    # Aggregate to just origin, destination (weighted avg. based on demand)
-    od_agg = aggregation.groupby(["origin", "destination"]).agg(agg_methods)
-    path = output_path.with_name(output_path.stem + "-od.csv")
-    od_agg.to_csv(path, **csv_kwargs)
-    LOG.info("Written: %s", path)
+    _aggregate_final_grouping(
+        aggregation,
+        ["origin", "destination"],
+        route_totals.columns.tolist(),
+        banding_columns,
+        output_path.with_name(output_path.stem + "-od.csv"),
+        **csv_kwargs,
+    )
 
     # Convert through zones, assuming all zones are completely within another i.e many-to-one
     aggregation = aggregation.reset_index()
@@ -465,9 +510,14 @@ def _aggregate_route_zones(
         )
         aggregation["through"] = aggregation["through"].replace(through_lookup)
 
-    aggregation = aggregation.groupby(["origin", "destination", "through"]).agg(agg_methods)
-    aggregation.to_csv(output_path, **csv_kwargs)
-    LOG.info("Written: %s", output_path)
+    _aggregate_final_grouping(
+        aggregation,
+        ["origin", "destination", "through"],
+        route_totals.columns.tolist(),
+        banding_columns,
+        output_path,
+        **csv_kwargs,
+    )
 
     route_zones.loc[routes_mask.values, "done_row"] = True
     return route_zones
@@ -482,7 +532,9 @@ def process_hdf(
     zone_filter: Optional[Sequence[int]] = None,
 ) -> None:
     # Copy HDF file to working directory to make changes
-    LOG.info("Copying SATPig HDF file into working directory: %s", working_directory)
+    LOG.info(
+        "Copying SATPig HDF file (%s) into working directory: %s", path.name, working_directory
+    )
     path = pathlib.Path(shutil.copy2(path, working_directory))
 
     if through_lookup_path is not None:
@@ -518,7 +570,7 @@ def process_hdf(
                 route_zones,
                 np.array(chunk),
                 through_lookup,
-                working_directory / "aggregated_routes.csv",
+                working_directory / f"{path.stem}_aggregated.csv",
                 header=i == 0,
             )
             LOG.info("Done chunk %s / %s (%s)", i, n_chunks, f"{i / n_chunks:.0%}")
