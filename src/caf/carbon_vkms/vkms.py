@@ -571,6 +571,6 @@ def process_hdf(
                 np.array(chunk),
                 through_lookup,
                 working_directory / f"{path.stem}_aggregated.csv",
-                header=i == 0,
+                header=i == 1,
             )
             LOG.info("Done chunk %s / %s (%s)", i, n_chunks, f"{i / n_chunks:.0%}")
