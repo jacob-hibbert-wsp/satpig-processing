@@ -464,6 +464,7 @@ def process_hdf(
     links_data_path: pathlib.Path,
     working_directory: pathlib.Path,
     lad_lookup_path: pathlib.Path,
+    h5_filename,
     chunk_size: int = 100,
     zone_filter: Optional[Sequence[int]] = None,
 ) -> None:
@@ -502,7 +503,7 @@ def process_hdf(
                 route_zones,
                 np.array(chunk),
                 lad_lookup,
-                working_directory / "aggregated_routes.csv",
+                working_directory / f"{h5_filename}_aggregated_routes.csv",
                 header=i == 0,
             )
             LOG.info("Done chunk %s / %s (%s)", i, n_chunks, f"{i / n_chunks:.0%}")
@@ -511,31 +512,35 @@ def process_hdf(
 def main() -> None:
     warnings.formatwarning = _simple_warning_format
 
-    inputs_folder = pathlib.Path(r"B:\QCR- assignments\03.Assignments\h5files\BaseYearFiles")
+    inputs_folder = pathlib.Path(r"B:\QCR- assignments\03.Assignments\h5files\2028")
     output_folder = pathlib.Path(r"B:\QCR- assignments\03.Assignments\h5files\outputs")
     working_directory = output_folder / f"VKMs-{dt.datetime.today():%Y%m%d}"
     working_directory.mkdir(exist_ok=True)
+    working_directory = working_directory / "2028"
+    working_directory.mkdir(exist_ok=True)
     log_file = working_directory / "satpig_tests.log"
 
-    h5_path = inputs_folder / "RotherhamBase_i8c_2018_TS1_v107_SatPig_uc1.h5"
-    print(h5_path)
-    links_data_path = inputs_folder / "2018_link_table_new_2.csv"
+    #h5_path = inputs_folder / "RotherhamBase_i8c_2018_TS1_v107_SatPig_uc1.h5"
+    #print(h5_path)
+    links_data_path = inputs_folder / "2028_link_table_fixed.csv"
     lad_lookup_path = inputs_folder / "MSOA11_WD21_LAD21_EW_LU_1.csv"
-    print(working_directory)
     filterpath = r"B:\QCR- assignments\03.Assignments\h5files\YNY\MSOA11_WD21_LAD21_EW_LU_YNY_CA.csv"
     zone_filter = pd.read_csv(filterpath, usecols=['zone'])['zone'].tolist()
 
     with ctk.LogHelper("", ctk.ToolDetails("satpig_test", "0.1.0"), log_file=log_file):
-        process_hdf(
-            h5_path,
-            links_data_path,
-            working_directory,
-            lad_lookup_path,
-            chunk_size = 60,
-            zone_filter=zone_filter,
-        )
-
-    # TODO Dump to carbon drive A drive
+        for h5_path in inputs_folder.glob("*.h5"):
+            h5_filename = h5_path.stem  # Get the filename without the extension
+            LOG.info(f"Processing {h5_path}")
+            process_hdf(
+                h5_path,
+                links_data_path,
+                working_directory,
+                lad_lookup_path,
+                h5_filename=h5_filename,
+                chunk_size = 60,
+                zone_filter=zone_filter,
+            )
+Dump to carbon drive A drive
     # TODO Find correct link lookup and link data
     # TODO Find correct MSOA to LAD lookup
 
