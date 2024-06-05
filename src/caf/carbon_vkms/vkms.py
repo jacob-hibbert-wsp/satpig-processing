@@ -67,7 +67,8 @@ class Timer:
         return f"{hours:.0f}:{mins:.0f}:{secs:.0f}"
 
 
-def basic_read_df(path):
+# TODO Remove unused function
+def _basic_read_df(path):
     print(f"Reading {path.name}")
     timer = Timer()
     df = pd.read_hdf(path)
@@ -81,7 +82,8 @@ def basic_read_df(path):
     print(grouped)
 
 
-def chunk_fixed(
+# TODO Remove unused function
+def _chunk_fixed(
     path: pathlib.Path,
     out_path: pathlib.Path,
     group_length: int,
@@ -119,7 +121,8 @@ def chunk_fixed(
     print(f"Done writing in {timer.time_taken()}")
 
 
-def convert_to_sqlite(path: pathlib.Path, out_path: pathlib.Path):
+# TODO Remove unused function
+def _convert_to_sqlite(path: pathlib.Path, out_path: pathlib.Path):
     timer = Timer()
     print(f"Reading: {path.name}")
     full = pd.read_hdf(path)
