@@ -67,8 +67,7 @@ class Timer:
         return f"{hours:.0f}:{mins:.0f}:{secs:.0f}"
 
 
-# TODO Remove unused function
-def _basic_read_df(path):
+def basic_read_df(path):
     print(f"Reading {path.name}")
     timer = Timer()
     df = pd.read_hdf(path)
@@ -82,8 +81,7 @@ def _basic_read_df(path):
     print(grouped)
 
 
-# TODO Remove unused function
-def _chunk_fixed(
+def chunk_fixed(
     path: pathlib.Path,
     out_path: pathlib.Path,
     group_length: int,
@@ -121,8 +119,7 @@ def _chunk_fixed(
     print(f"Done writing in {timer.time_taken()}")
 
 
-# TODO Remove unused function
-def _convert_to_sqlite(path: pathlib.Path, out_path: pathlib.Path):
+def convert_to_sqlite(path: pathlib.Path, out_path: pathlib.Path):
     timer = Timer()
     print(f"Reading: {path.name}")
     full = pd.read_hdf(path)
@@ -310,7 +307,7 @@ def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
 
 
 def _aggregate_final_grouping(
-    data: pd.DataFrame,
+    ungrouped: pd.DataFrame,
     agg_columns: list[str],
     route_columns: list[str],
     banding_columns: list[str],
@@ -320,7 +317,7 @@ def _aggregate_final_grouping(
     LOG.info("Performing %s aggregation", ", ".join(agg_columns))
 
     def demand_weighted_mean(data: pd.Series) -> float:
-        return np.average(data, weights=data.loc[data.index, "abs_demand"])
+        return np.average(data, weights=ungrouped.loc[data.index, "abs_demand"])
 
     agg_methods = {
         "distance": [demand_weighted_mean, "sum"],
@@ -333,7 +330,7 @@ def _aggregate_final_grouping(
     }
 
     # Aggregate to just origin, destination (weighted avg. based on demand)
-    aggregation = data.groupby(agg_columns).agg(agg_methods)
+    aggregation = ungrouped.groupby(agg_columns).agg(agg_methods)
     aggregation.columns = [
         f"{j}_{i}" if i == "distance" else i for i, j in aggregation.columns
     ]
