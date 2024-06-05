@@ -16,6 +16,7 @@ from carbon_vkms import utils, vkms
 ##### CONSTANTS #####
 
 LOG = logging.getLogger(__name__)
+_CONFIG_FILE = pathlib.Path(__package__).with_suffix(".yml")
 
 
 ##### CLASSES & FUNCTIONS #####
@@ -24,33 +25,49 @@ LOG = logging.getLogger(__name__)
 def main() -> None:
     warnings.formatwarning = utils.simple_warning_format
 
-    # TODO Move input parameters to config class (YAML file)
-    inputs_folder = pathlib.Path(r"B:\QCR- assignments\03.Assignments\h5files\BaseYearFiles")
-    output_folder = pathlib.Path(r"B:\QCR- assignments\03.Assignments\h5files\outputs")
-    working_directory = output_folder / f"Test VKMs-{dt.datetime.today():%Y%m%d}"
-    working_directory.mkdir(exist_ok=True)
-    log_file = working_directory / "satpig_tests.log"
+    params = utils.CarbonVKMConfig.load_yaml(_CONFIG_FILE)
 
-    links_data_path = inputs_folder / "2018_link_table_new_2.csv"
-    lad_lookup_path = inputs_folder / "MSOA11_WD21_LAD21_EW_LU_1.csv"
+    output_folder = params.output_folder / f"VKMs-{dt.datetime.now():%Y%m%d}"
+    try:
+        # Will not use an existing folder to avoid clashes if
+        # process is running concurrently on multiple VMs
+        output_folder.mkdir(exist_ok=False, parents=True)
 
-    filterpath = inputs_folder.parent / r"YNY\MSOA11_WD21_LAD21_EW_LU_YNY_CA.csv"
-    zone_filter = pd.read_csv(filterpath, usecols=["zone"])["zone"].tolist()
+    except FileExistsError as exc:
+        raise SystemExit(
+            f'Output run folder already exists: "{output_folder.absolute()}"'
+            "\nPlease rename or move this folder before re-running."
+        ) from exc
+
+    log_file = output_folder / "satpig_tests.log"
 
     with ctk.LogHelper("", ctk.ToolDetails("satpig_test", "0.1.0"), log_file=log_file):
+        LOG.info("Loading zone filters from: %s", params.zone_filter_path)
+        zone_filter = pd.read_csv(params.zone_filter_path, usecols=["zone"])["zone"].tolist()
+        LOG.info(
+            "%s zones included in filter: %s",
+            len(zone_filter),
+            utils.shorten_list(zone_filter, 10),
+        )
 
-        for path in inputs_folder.glob("*.h5"):
-            vkms.process_hdf(
-                path,
-                links_data_path,
-                working_directory,
-                chunk_size=60,
-                zone_filter=zone_filter,
-            )
+        for scenario in params.scenario_paths:
+            LOG.info("Producing VKMs for all SATPIG files in: %s", scenario.folder.resolve())
+            # Save each scenario to separate working directory to avoid filename clashes
+            working_directory = output_folder / scenario.folder.name
+            working_directory.mkdir(exist_ok=True)
 
-    # TODO Loop through all input HDF files
-    # TODO Find correct link lookup and link data
-    # TODO Find correct MSOA to LAD lookup
+            for path in scenario.folder.glob("*.h5"):
+                try:
+                    vkms.process_hdf(
+                        path,
+                        scenario.link_data,
+                        working_directory,
+                        through_lookup_path=params.through_zones_lookup,
+                        chunk_size=params.chunk_size,
+                        zone_filter=zone_filter,
+                    )
+                except Exception:  # Continuing with other files pylint: disable=broad-except
+                    LOG.error('Error producing VKMs for "%s"', path.resolve(), exc_info=True)
 
 
 ##### MAIN #####

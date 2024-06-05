@@ -1,0 +1,16 @@
+# Path to base output folder
+output_folder:
+# Optional path to CSV containing zone filter
+zone_filter_path:
+# Optional chunk size, defaults to 100
+chunk_size: 100
+# Optional path to CSV containing lookup to convert through zones to another zone system
+through_zones_lookup: 
+
+# List of all the scenario folders and the corresponding link data CSV
+scenario_paths:
+  - folder: Scenario 1 folder
+    link_data: Scenario 1 link data
+  - folder: Scenario 2 folder
+    link_data: Scenario 2 link data
+  # Etc.

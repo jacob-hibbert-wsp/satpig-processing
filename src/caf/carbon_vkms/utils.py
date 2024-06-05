@@ -11,6 +11,12 @@ import os
 import pathlib
 import re
 import sys
+from typing import Optional
+
+import pydantic
+from pydantic import dataclasses
+
+import caf.toolkit as ctk
 
 ##### CONSTANTS #####
 
@@ -18,6 +24,32 @@ LOG = logging.getLogger(__name__)
 
 
 ##### CLASSES & FUNCTIONS #####
+
+
+@dataclasses.dataclass
+class ScenarioPaths:
+    """Parameters for running VKMs on single SATURN scenario year folder.
+
+    Attributes
+    ----------
+    folder : DirectoryPath
+        Folder contain SATPIG H5 files.
+    link_data : FilePath
+        CSV contain link A, B lookup with zone, speed and distance.
+    """
+
+    folder: pydantic.DirectoryPath
+    link_data: pydantic.FilePath
+
+
+class CarbonVKMConfig(ctk.BaseConfig):
+    """Parameters for running carbon_vkms package."""
+
+    output_folder: pydantic.DirectoryPath
+    scenario_paths: list[ScenarioPaths]
+    through_zones_lookup: Optional[pydantic.FilePath] = None
+    zone_filter_path: Optional[pydantic.FilePath] = None
+    chunk_size: int = 100
 
 
 def getenv_bool(key: str, default: bool) -> bool:
