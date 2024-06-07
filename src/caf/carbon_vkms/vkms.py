@@ -290,40 +290,63 @@ def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
     return route_zones
 
 
-def _aggregate_final_grouping(
-    ungrouped: pd.DataFrame,
-    agg_columns: list[str],
-    route_columns: list[str],
-    banding_columns: list[str],
+def _aggregate_routes(
+    ungrouped_path: pathlib.Path,
+    agg_columns: Sequence[str],
+    distance_column: str,
+    weighting_column: str,
+    sum_columns: Sequence[str],
+    avg_columns: Sequence[str],
+    band_columns: Sequence[str],
     output_path: pathlib.Path,
     **csv_kwargs,
 ) -> pd.DataFrame:
-    LOG.info("Performing %s aggregation", ", ".join(agg_columns))
+    timer = utils.Timer()
+    LOG.info(
+        "Reading %s and performing %s aggregation", ungrouped_path.name, ", ".join(agg_columns)
+    )
+    ungrouped = pd.read_csv(ungrouped_path)
 
-    def demand_weighted_mean(data: pd.Series) -> float:
-        return np.average(data, weights=ungrouped.loc[data.index, "abs_demand"])
+    ungrouped, banding_columns = _add_distance_banding(
+        ungrouped, distance_column, band_columns
+    )
+
+    def weighted_mean(data: pd.Series) -> float:
+        return np.average(data, weights=ungrouped.loc[data.index, weighting_column])
 
     agg_methods = {
-        "distance": [demand_weighted_mean, "sum"],
-        "abs_demand": "sum",
-        "through_vkms": "sum",
-        "route_vkms": demand_weighted_mean,
-        "speed": demand_weighted_mean,
-        **dict.fromkeys(route_columns, demand_weighted_mean),
+        **dict.fromkeys(sum_columns, "sum"),
+        **dict.fromkeys(avg_columns, weighted_mean),
         **dict.fromkeys(banding_columns, "sum"),
     }
 
-    # Aggregate to just origin, destination (weighted avg. based on demand)
-    aggregation = ungrouped.groupby(agg_columns).agg(agg_methods)
-    aggregation.columns = [
-        f"{j}_{i}" if i == "distance" else i for i, j in aggregation.columns
-    ]
+    aggregation: pd.DataFrame = ungrouped.groupby(agg_columns).agg(agg_methods)
     aggregation.rename(columns=_VKMS_OUTPUT_RENAMING, inplace=True)
 
     aggregation.to_csv(output_path, **csv_kwargs)
-    LOG.info("Written: %s", output_path)
+    LOG.info("Done aggregation in %s and written: %s", timer.time_taken(), output_path)
 
-    return aggregation
+
+def _add_distance_banding(
+    data: pd.DataFrame, distance_column: str, band_columns: Sequence[str]
+) -> tuple[pd.DataFrame, list[str]]:
+    banding_columns = []
+    for i, j in zip(_VKM_DISTANCE_BINS[:-1], _VKM_DISTANCE_BINS[1:]):
+        if i == -np.inf:
+            name = f"< {j}km"
+        elif j == np.inf:
+            name = f">= {i}km"
+        else:
+            name = f"{i} - {j}km"
+
+        mask = (data[distance_column] >= i) & (data[distance_column] < j)
+
+        for col in band_columns:
+            col_name = f"{name} - {col}"
+            data.loc[mask, col_name] = data.loc[mask, col]
+            banding_columns.append(col_name)
+
+    return data, banding_columns
 
 
 def _aggregate_route_zones(
@@ -333,7 +356,7 @@ def _aggregate_route_zones(
     through_lookup: dict[int, int],
     output_path: pathlib.Path,
     header: bool = True,
-):
+) -> tuple[pd.DataFrame | None, pathlib.Path, pathlib.Path]:
     if len(zones) <= 20:
         zone_str = ", ".join(str(i) for i in zones)
     else:
@@ -343,11 +366,13 @@ def _aggregate_route_zones(
             + ", ".join(str(i) for i in zones[-5:])
         )
 
+    summary_path = output_path.with_name(output_path.stem + "-route_summary.csv")
+    through_path = output_path.with_name(output_path.stem + "-routes_through.csv")
     LOG.info("Processing chunk containing %s zones: %s", len(zones), zone_str)
 
     if route_zones["done_row"].all():
         LOG.info("No routes left to do")
-        return
+        return None, summary_path, through_path
 
     # Get mask for all routes which contain the zones
     routes_mask = (
@@ -403,82 +428,28 @@ def _aggregate_route_zones(
     ].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
     route_totals.columns = [f"route_{i}" for i in route_totals.columns]
 
-    path = output_path.with_name(output_path.stem + "-route_summary.csv")
-    route_totals.to_csv(path, **csv_kwargs)
-    LOG.info("Written: %s", path)
-
-    def distance_weighted_mean(data: pd.Series) -> float:  # pylint: disable=function-redefined
-        return np.average(data, weights=route_data.loc[data.index, "distance"])
-
-    aggregation = route_data.groupby(["route_id", "origin", "destination", "through"])[
-        LINK_DATA_COLUMNS
-    ].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
-
-    # Join Route totals
-    aggregation = aggregation.merge(
-        route_totals, how="left", left_index=True, right_index=True, validate="m:1"
-    )
-
-    # Join demand data
+    # Join demand data and calculate route VKMs
     od = store.get(SATPIG_HDF_GROUPS["od"])["abs_demand"]
     od.index = od.index.droplevel([i for i in od.index.names if i != "route"])
     od.index.name = "route_id"
-    aggregation = aggregation.merge(
+
+    route_totals = route_totals.merge(
         od, how="left", validate="1:1", left_index=True, right_index=True
     )
+    route_totals["route_vkms"] = route_totals["distance"] * route_totals["abs_demand"]
 
-    aggregation["through_vkms"] = aggregation["abs_demand"] * aggregation["distance"]
-    aggregation["route_vkms"] = aggregation["abs_demand"] * aggregation["route_distance"]
-
-    # Create banding columns
-    banding_columns = []
-    for i, j in zip(_VKM_DISTANCE_BINS[:-1], _VKM_DISTANCE_BINS[1:]):
-        if i == -np.inf:
-            name = f"< {j}km"
-        elif j == np.inf:
-            name = f">= {i}km"
-        else:
-            name = f"{i} - {j}km"
-
-        mask = (aggregation["route_distance"] >= i) & (aggregation["route_distance"] < j)
-        col_name = f"{name} - trips"
-        aggregation.loc[mask, col_name] = aggregation.loc[mask, "abs_demand"]
-        banding_columns.append(col_name)
-
-        col_name = f"{name} - route_vkms"
-        aggregation.loc[mask, col_name] = (
-            aggregation.loc[mask, "route_distance"] * aggregation.loc[mask, "abs_demand"]
-        )
-        banding_columns.append(col_name)
-
-        col_name = f"{name} - through_vkms"
-        aggregation.loc[mask, col_name] = (
-            aggregation.loc[mask, "distance"] * aggregation.loc[mask, "abs_demand"]
-        )
-        banding_columns.append(col_name)
-
-    if VERBOSE_OUTPUTS:
-        path = output_path.with_name(output_path.stem + "-routes.csv")
-        aggregation.to_csv(path, **csv_kwargs)
-        LOG.info("Written: %s", path)
-
-    _aggregate_final_grouping(
-        aggregation,
-        ["origin", "destination"],
-        route_totals.columns.tolist(),
-        banding_columns,
-        output_path.with_name(output_path.stem + "-od.csv"),
-        **csv_kwargs,
-    )
+    route_totals.to_csv(summary_path, **csv_kwargs)
+    LOG.info("Written: %s", summary_path)
+    del route_totals
 
     # Convert through zones, assuming all zones are completely within another i.e many-to-one
-    aggregation = aggregation.reset_index()
+    route_data = route_data.reset_index()
     if len(through_lookup) == 0:
         LOG.info("Through zones using same zoning as origin and destination")
 
     else:
-        missing = aggregation.loc[
-            ~aggregation["through"].isin(through_lookup), "through"
+        missing = route_data.loc[
+            ~route_data["through"].isin(through_lookup), "through"
         ].unique()
         if len(missing) > 0:
             warnings.warn(
@@ -492,19 +463,22 @@ def _aggregate_route_zones(
             len(through_lookup),
             utils.shorten_list([f"{i}: {j}" for i, j in through_lookup.items()], 10),
         )
-        aggregation["through"] = aggregation["through"].replace(through_lookup)
+        route_data["through"] = route_data["through"].replace(through_lookup)
 
-    _aggregate_final_grouping(
-        aggregation,
-        ["origin", "destination", "through"],
-        route_totals.columns.tolist(),
-        banding_columns,
-        output_path,
-        **csv_kwargs,
+    routes_through = route_data.groupby(["route_id", "origin", "destination", "through"])[
+        LINK_DATA_COLUMNS
+    ].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
+
+    routes_through = routes_through.merge(
+        od, how="left", validate="1:1", left_index=True, right_index=True
     )
+    routes_through["through_vkms"] = routes_through["distance"] * routes_through["abs_demand"]
+
+    routes_through.to_csv(through_path, **csv_kwargs)
+    LOG.info("Written: %s", summary_path)
 
     route_zones.loc[routes_mask.values, "done_row"] = True
-    return route_zones
+    return route_zones, summary_path, through_path
 
 
 def process_hdf(
@@ -549,8 +523,9 @@ def process_hdf(
 
         # Process chunk of zones
         timer = utils.Timer()
+        route_summary_path, route_through_path = None, None
         for i, chunk in enumerate(itertools.batched(zones, chunk_size), start=1):
-            route_zones = _aggregate_route_zones(
+            route_zones, route_summary_path, route_through_path = _aggregate_route_zones(
                 store,
                 route_zones,
                 np.array(chunk),
@@ -565,3 +540,35 @@ def process_hdf(
                 f"{i / n_chunks:.0%}",
                 timer.time_taken(True),
             )
+
+            if route_zones is None:
+                break
+
+        # TODO Fix the column names provided
+        if route_summary_path is not None:
+            _aggregate_routes(
+                route_summary_path,
+                ["origin", "destination"],
+                "route_distance",
+                "abs_demand",
+                ["route_distance"],
+                ["route_distance", "speed"],
+                ["vkms"],
+                output_path=working_directory / f"{path.stem}-OD_VKMs.csv",
+            )
+        else:
+            warnings.warn("No route summary produce")
+
+        if route_through_path is not None:
+            _aggregate_routes(
+                route_through_path,
+                ["origin", "destination"],
+                "route_distance",
+                "abs_demand",
+                ["route_distance"],
+                ["route_distance", "speed"],
+                ["vkms"],
+                output_path=working_directory / f"{path.stem}-ODT_VKMs.csv",
+            )
+        else:
+            warnings.warn("No route through data produced")
