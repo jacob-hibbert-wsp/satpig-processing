@@ -27,7 +27,9 @@ def main() -> None:
 
     params = utils.CarbonVKMConfig.load_yaml(_CONFIG_FILE)
 
-    output_folder = params.output_folder / f"VKMs-{dt.datetime.now():%Y%m%d}"
+    output_folder = params.output_folder / params.output_folder_name_format.format(
+        datetime=dt.datetime.now()
+    )
     try:
         # Will not use an existing folder to avoid clashes if
         # process is running concurrently on multiple VMs
@@ -50,13 +52,16 @@ def main() -> None:
             utils.shorten_list(zone_filter, 10),
         )
 
+        timer = utils.Timer()
         for scenario in params.scenario_paths:
             LOG.info("Producing VKMs for all SATPIG files in: %s", scenario.folder.resolve())
             # Save each scenario to separate working directory to avoid filename clashes
             working_directory = output_folder / scenario.folder.name
             working_directory.mkdir(exist_ok=True)
 
+            timer.reset()
             for path in scenario.folder.glob("*.h5"):
+                LOG.info('Processing "%s"', path)
                 try:
                     vkms.process_hdf(
                         path,
@@ -67,7 +72,11 @@ def main() -> None:
                         zone_filter=zone_filter,
                     )
                 except Exception:  # Continuing with other files pylint: disable=broad-except
-                    LOG.error('Error producing VKMs for "%s"', path.resolve(), exc_info=True)
+                    LOG.error('Error producing VKMs for "%s"\n', path.resolve(), exc_info=True)
+                else:
+                    LOG.info(
+                        'Finished processing "%s" in %s\n', path.name, timer.time_taken(True)
+                    )
 
 
 ##### MAIN #####

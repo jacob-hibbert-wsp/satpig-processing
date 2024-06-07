@@ -7,6 +7,10 @@ chunk_size: 100
 # Optional path to CSV containing lookup to convert through zones to another zone system
 through_zones_lookup: 
 
+# Optional name format for output folder, will be a sub-folder of output_folder (above)
+# name will have datetime provided using str.format
+output_folder_name_format: VKMs-{datetime:%Y%m%d}
+
 # List of all the scenario folders and the corresponding link data CSV
 scenario_paths:
   - folder: Scenario 1 folder

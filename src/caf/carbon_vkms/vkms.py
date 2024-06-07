@@ -11,7 +11,6 @@ import math
 import pathlib
 import shutil
 import sqlite3
-import time
 import warnings
 from typing import Optional, Sequence
 
@@ -27,6 +26,7 @@ LOG = logging.getLogger(__name__)
 SATPIG_HDF_GROUPS = {"od": "data/OD", "routes": "data/Route", "links": "data/link"}
 LINK_DATA_COLUMNS = ["speed", "distance"]
 LINK_NODE_COLUMNS = ["a", "b"]
+_LINKS_FILLNA = {"zone": -1, "speed": 48.0, "distance": 1.0}
 _VKMS_OUTPUT_RENAMING = {
     "origin": "origin_zone_id",
     "destination": "destination_zone_id",
@@ -44,32 +44,9 @@ VERBOSE_OUTPUTS = utils.getenv_bool("CARBON_VKMS_VERBOSE", False)
 ##### CLASSES & FUNCTIONS #####
 
 
-class Timer:
-    def __init__(self) -> None:
-        self.start = time.perf_counter()
-
-    def reset(self) -> None:
-        self.start = time.perf_counter()
-
-    def time_taken(self, reset: bool = False) -> str:
-        time_taken = time.perf_counter() - self.start
-        if reset:
-            self.reset()
-
-        if time_taken < 60:
-            return f"{time_taken:.1f} secs"
-
-        mins, secs = divmod(time_taken, 60)
-        if mins < 60:
-            return f"{mins:.0f} mins {secs:.0f} secs"
-
-        hours, mins = divmod(mins, 60)
-        return f"{hours:.0f}:{mins:.0f}:{secs:.0f}"
-
-
 def basic_read_df(path):
     print(f"Reading {path.name}")
-    timer = Timer()
+    timer = utils.Timer()
     df = pd.read_hdf(path)
     print(f"Done reading in {timer.time_taken()}")
     print(df)
@@ -92,7 +69,7 @@ def chunk_fixed(
     elif out_path.is_file():
         raise FileExistsError(f"{out_path.name} already exists and overwrite is False")
 
-    timer = Timer()
+    timer = utils.Timer()
     print(f"Reading: {path.name}")
     full = pd.read_hdf(path)
     print(f"Done reading in {timer.time_taken()}")
@@ -120,7 +97,7 @@ def chunk_fixed(
 
 
 def convert_to_sqlite(path: pathlib.Path, out_path: pathlib.Path):
-    timer = Timer()
+    timer = utils.Timer()
     print(f"Reading: {path.name}")
     full = pd.read_hdf(path)
     full.index = full.index.droplevel("n_link")
@@ -215,13 +192,20 @@ def update_links_data(store: pd.HDFStore, link_path: pathlib.Path) -> pd.Series:
         )
 
     if links[lookup.columns].isna().any(axis=None):
-        LOG.error(
-            "Nan values found in links data after joining lookup:\n%s",
-            links[lookup.columns].isna().sum(),
+        warnings.warn(
+            "Nan values found in links data after joining"
+            f" lookup:\n{links[lookup.columns].isna().sum()}."
+            f"\nFilling NaN values with: {_LINKS_FILLNA}",
+            RuntimeWarning,
         )
-        # TODO Raise error if columns have missing values
-        LOG.warning("Filling Nan values with -1")
-        links["zone"] = links["zone"].fillna(-1)
+        for nm, value in _LINKS_FILLNA.items():
+            links[nm] = links[nm].fillna(value)
+
+        if links[lookup.columns].isna().any():
+            raise ValueError(
+                "Links data still contains Nan values after"
+                " infilling, this shouldn't be possible"
+            )
 
     # Convert metres to km
     links["distance"] = links["distance"] / 1000
@@ -235,7 +219,7 @@ def update_links_data(store: pd.HDFStore, link_path: pathlib.Path) -> pd.Series:
 def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
     # Produce route zones table with columns: route id, origin zone, destination zone, through zone
     LOG.info("Creating routes zone groupings table")
-    timer = Timer()
+    timer = utils.Timer()
     routes = store.get(SATPIG_HDF_GROUPS["routes"])
     LOG.info(
         "Loaded routes in %s, now joining zones this may take some time",
@@ -506,7 +490,7 @@ def _aggregate_route_zones(
         LOG.info(
             "Converting through zones using lookup with %s values: %s",
             len(through_lookup),
-            through_lookup,
+            utils.shorten_list([f"{i}: {j}" for i, j in through_lookup.items()], 10),
         )
         aggregation["through"] = aggregation["through"].replace(through_lookup)
 
@@ -564,6 +548,7 @@ def process_hdf(
         n_chunks = math.ceil(len(zones) / chunk_size)
 
         # Process chunk of zones
+        timer = utils.Timer()
         for i, chunk in enumerate(itertools.batched(zones, chunk_size), start=1):
             route_zones = _aggregate_route_zones(
                 store,
@@ -573,4 +558,10 @@ def process_hdf(
                 working_directory / f"{path.stem}_aggregated.csv",
                 header=i == 1,
             )
-            LOG.info("Done chunk %s / %s (%s)", i, n_chunks, f"{i / n_chunks:.0%}")
+            LOG.info(
+                "Done chunk %s / %s (%s) in %s",
+                i,
+                n_chunks,
+                f"{i / n_chunks:.0%}",
+                timer.time_taken(True),
+            )

@@ -11,6 +11,7 @@ import os
 import pathlib
 import re
 import sys
+import time
 from typing import Optional
 
 import pydantic
@@ -50,6 +51,7 @@ class CarbonVKMConfig(ctk.BaseConfig):
     through_zones_lookup: Optional[pydantic.FilePath] = None
     zone_filter_path: Optional[pydantic.FilePath] = None
     chunk_size: int = 100
+    output_folder_name_format: str = "VKMs-{datetime:%Y%m%d}"
 
 
 def getenv_bool(key: str, default: bool) -> bool:
@@ -171,3 +173,49 @@ def display_memory_usage(**kwargs) -> str:
     messages = sorted(messages, key=messages.get, reverse=True)
 
     return "\n".join(messages)
+
+
+class Timer:
+    """Timer object with human-readable output.
+
+    Keeps track of a start time when the class
+    is instantiated.
+    """
+
+    def __init__(self) -> None:
+        self.start = time.perf_counter()
+
+    def reset(self) -> None:
+        """Reset the internal start time."""
+        self.start = time.perf_counter()
+
+    def time_taken(self, reset: bool = False) -> str:
+        """Produce human-readable string of time taken since start.
+
+        Parameters
+        ----------
+        reset : bool, default False
+            If True reset the start time after calculating time taken.
+
+        Returns
+        -------
+        str
+            Time taken in the following formats:
+            - < 60 seconds: "{time_taken} secs" e.g. "57.4 secs"
+            - < 60 minutes: "{minutes} mins {seconds} secs" e.g. "5 mins 37 secs"
+            - anything else: "{hours}:{minutes}:{seconds}" e.g. "3:30:09"
+        """
+        time_taken = time.perf_counter() - self.start
+        if reset:
+            self.reset()
+
+        if time_taken < 60:
+            return f"{time_taken:.1f} secs"
+
+        mins, secs = divmod(time_taken, 60)
+        if mins < 60:
+            return f"{mins:.0f} mins {secs:.0f} secs"
+
+        hours, mins = divmod(mins, 60)
+        hours, mins, secs = round(hours), round(mins), round(secs)
+        return f"{hours}:{mins!s:>02.2}:{secs!s:>02.2}"
