@@ -12,7 +12,7 @@ import pathlib
 import shutil
 import sqlite3
 import warnings
-from typing import Optional, Sequence
+from typing import Literal, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -201,7 +201,7 @@ def update_links_data(store: pd.HDFStore, link_path: pathlib.Path) -> pd.Series:
         for nm, value in _LINKS_FILLNA.items():
             links[nm] = links[nm].fillna(value)
 
-        if links[lookup.columns].isna().any():
+        if links[lookup.columns].isna().any(axis=None):
             raise ValueError(
                 "Links data still contains Nan values after"
                 " infilling, this shouldn't be possible"
@@ -293,10 +293,8 @@ def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
 def _aggregate_routes(
     ungrouped_path: pathlib.Path,
     agg_columns: Sequence[str],
-    distance_column: str,
+    distance_band_column: str,
     weighting_column: str,
-    sum_columns: Sequence[str],
-    avg_columns: Sequence[str],
     band_columns: Sequence[str],
     output_path: pathlib.Path,
     **csv_kwargs,
@@ -306,21 +304,91 @@ def _aggregate_routes(
         "Reading %s and performing %s aggregation", ungrouped_path.name, ", ".join(agg_columns)
     )
     ungrouped = pd.read_csv(ungrouped_path)
+    if ungrouped["route_id"].duplicated().any():
+        dups = ungrouped["route_id"].duplicated().sum()
+        warnings.warn(f"Found {dups:,} duplicate route IDs in route summary data")
 
     ungrouped, banding_columns = _add_distance_banding(
-        ungrouped, distance_column, band_columns
+        ungrouped, distance_band_column, band_columns
     )
 
     def weighted_mean(data: pd.Series) -> float:
         return np.average(data, weights=ungrouped.loc[data.index, weighting_column])
 
     agg_methods = {
-        **dict.fromkeys(sum_columns, "sum"),
-        **dict.fromkeys(avg_columns, weighted_mean),
-        **dict.fromkeys(banding_columns, "sum"),
+        distance_band_column: [weighted_mean, "sum"],
+        "route_speed": weighted_mean,
+        "abs_demand": "sum",
+        "route_vkms": "sum",
     }
+    agg_methods.update(dict.fromkeys(banding_columns, "sum"))
 
     aggregation: pd.DataFrame = ungrouped.groupby(agg_columns).agg(agg_methods)
+
+    if aggregation.columns.nlevels > 1:
+        aggregation.columns = [
+            f"{j}_{i}".replace("sum_", "total_") for i, j in aggregation.columns
+        ]
+
+    aggregation.rename(columns=_VKMS_OUTPUT_RENAMING, inplace=True)
+
+    aggregation.to_csv(output_path, **csv_kwargs)
+    LOG.info("Done aggregation in %s and written: %s", timer.time_taken(), output_path)
+
+
+def _aggregate_through(
+    ungrouped_path: pathlib.Path,
+    agg_columns: Sequence[str],
+    distance_band_column: str,
+    weighting_column: str,
+    band_columns: Sequence[str],
+    output_path: pathlib.Path,
+    distance_band_path: pathlib.Path,
+    **csv_kwargs,
+) -> pd.DataFrame:
+    timer = utils.Timer()
+    LOG.info(
+        "Reading %s and performing %s aggregation", ungrouped_path.name, ", ".join(agg_columns)
+    )
+    ungrouped = pd.read_csv(ungrouped_path)
+
+    db_data = pd.read_csv(
+        distance_band_path, usecols=["route_id", distance_band_column], index_col="route_id"
+    )
+    # TODO Fix issue creating duplicate route IDs in the route summary data, not sure how they're getting created
+    db_data = db_data.loc[db_data.index.duplicated()]
+
+    ungrouped = ungrouped.merge(
+        db_data,
+        how="left",
+        left_on="route_id",
+        right_index=True,
+        validate="m:1",
+    )
+
+    ungrouped, banding_columns = _add_distance_banding(
+        ungrouped, distance_band_column, band_columns
+    )
+
+    def weighted_mean(data: pd.Series) -> float:
+        return np.average(data, weights=ungrouped.loc[data.index, weighting_column])
+
+    agg_methods = {
+        distance_band_column: weighted_mean,
+        "distance": [weighted_mean, "sum"],
+        "speed": weighted_mean,
+        "abs_demand": "sum",
+        "through_vkms": "sum",
+    }
+    agg_methods.update(dict.fromkeys(banding_columns, "sum"))
+
+    aggregation: pd.DataFrame = ungrouped.groupby(agg_columns).agg(agg_methods)
+
+    if aggregation.columns.nlevels > 1:
+        aggregation.columns = [
+            f"{j}_{i}".replace("sum_", "total_") for i, j in aggregation.columns
+        ]
+
     aggregation.rename(columns=_VKMS_OUTPUT_RENAMING, inplace=True)
 
     aggregation.to_csv(output_path, **csv_kwargs)
@@ -346,6 +414,7 @@ def _add_distance_banding(
             data.loc[mask, col_name] = data.loc[mask, col]
             banding_columns.append(col_name)
 
+    data[banding_columns] = data[banding_columns].fillna(0)
     return data, banding_columns
 
 
@@ -428,6 +497,10 @@ def _aggregate_route_zones(
     ].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
     route_totals.columns = [f"route_{i}" for i in route_totals.columns]
 
+    if route_totals.index.get_level_values("route_id").has_duplicates:
+        dups = route_totals.index.get_level_values("route_id").duplicated().sum()
+        warnings.warn(f"Found {dups:,} duplicate route IDs in route summary OD grouping")
+
     # Join demand data and calculate route VKMs
     od = store.get(SATPIG_HDF_GROUPS["od"])["abs_demand"]
     od.index = od.index.droplevel([i for i in od.index.names if i != "route"])
@@ -436,7 +509,7 @@ def _aggregate_route_zones(
     route_totals = route_totals.merge(
         od, how="left", validate="1:1", left_index=True, right_index=True
     )
-    route_totals["route_vkms"] = route_totals["distance"] * route_totals["abs_demand"]
+    route_totals["route_vkms"] = route_totals["route_distance"] * route_totals["abs_demand"]
 
     route_totals.to_csv(summary_path, **csv_kwargs)
     LOG.info("Written: %s", summary_path)
@@ -475,7 +548,7 @@ def _aggregate_route_zones(
     routes_through["through_vkms"] = routes_through["distance"] * routes_through["abs_demand"]
 
     routes_through.to_csv(through_path, **csv_kwargs)
-    LOG.info("Written: %s", summary_path)
+    LOG.info("Written: %s", through_path)
 
     route_zones.loc[routes_mask.values, "done_row"] = True
     return route_zones, summary_path, through_path
@@ -544,31 +617,29 @@ def process_hdf(
             if route_zones is None:
                 break
 
-        # TODO Fix the column names provided
-        if route_summary_path is not None:
-            _aggregate_routes(
-                route_summary_path,
-                ["origin", "destination"],
-                "route_distance",
-                "abs_demand",
-                ["route_distance"],
-                ["route_distance", "speed"],
-                ["vkms"],
-                output_path=working_directory / f"{path.stem}-OD_VKMs.csv",
-            )
-        else:
-            warnings.warn("No route summary produce")
+    if route_summary_path is not None:
+        _aggregate_routes(
+            route_summary_path,
+            ["origin", "destination"],
+            "route_distance",
+            "abs_demand",
+            "route",
+            ["abs_demand", "route_vkms"],
+            output_path=working_directory / f"{path.stem}-OD_VKMs.csv",
+        )
+    else:
+        warnings.warn("No route summary produce")
 
-        if route_through_path is not None:
-            _aggregate_routes(
-                route_through_path,
-                ["origin", "destination"],
-                "route_distance",
-                "abs_demand",
-                ["route_distance"],
-                ["route_distance", "speed"],
-                ["vkms"],
-                output_path=working_directory / f"{path.stem}-ODT_VKMs.csv",
-            )
-        else:
-            warnings.warn("No route through data produced")
+    if route_through_path is not None:
+        _aggregate_through(
+            route_through_path,
+            ["origin", "destination", "through"],
+            "route_distance",
+            "abs_demand",
+            "through",
+            ["abs_demand", "through_vkms"],
+            output_path=working_directory / f"{path.stem}-ODT_VKMs.csv",
+            distance_band_path=route_summary_path,
+        )
+    else:
+        warnings.warn("No route through data produced")
