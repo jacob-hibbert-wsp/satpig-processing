@@ -12,7 +12,7 @@ import pathlib
 import shutil
 import sqlite3
 import warnings
-from typing import Literal, Optional, Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -282,7 +282,7 @@ def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
         )
 
     route_zones.reset_index().to_hdf(
-        store, key="data/route_zones", complevel=1, format="fixed"
+        store, key="data/route_zones", complevel=1, format="fixed", index=False
     )
 
     LOG.info("Generated table in %s, updating file", timer.time_taken(True))
@@ -355,7 +355,6 @@ def _aggregate_through(
     db_data = pd.read_csv(
         distance_band_path, usecols=["route_id", distance_band_column], index_col="route_id"
     )
-    # TODO Fix issue creating duplicate route IDs in the route summary data, not sure how they're getting created
     db_data = db_data.loc[db_data.index.duplicated()]
 
     ungrouped = ungrouped.merge(
@@ -449,8 +448,23 @@ def _aggregate_route_zones(
         | (route_zones["destination"].isin(zones))
         | (route_zones["through"].isin(zones))
     )
+    # Make sure to include all rows referring to the same route ID
+    unique_route_ids = route_zones.loc[routes_mask, "route_id"].unique()
+    routes_mask.loc[route_zones["route_id"].isin(unique_route_ids)] = True
     # Filter out any o, d, t routes that have already been completed in a previous chunk
     routes_mask.loc[route_zones["done_row"].values] = False
+
+    # Check any route IDs included in the mask aren't in the remaining route zones data
+    unique_route_ids = route_zones.loc[routes_mask, "route_id"].unique()
+    unique_route_ids = unique_route_ids[
+        unique_route_ids.isin(route_zones.loc[~routes_mask, "route_id"])
+    ]
+    if len(unique_route_ids) > 0:
+        raise ValueError(
+            f"{len(unique_route_ids)} unique route IDs from"
+            " the routes mask also found outside the"
+            f" mask: {utils.shorten_list(unique_route_ids, 10)}"
+        )
 
     # Get route link data for all routes found in zone chunk
     links = (
@@ -623,7 +637,6 @@ def process_hdf(
             ["origin", "destination"],
             "route_distance",
             "abs_demand",
-            "route",
             ["abs_demand", "route_vkms"],
             output_path=working_directory / f"{path.stem}-OD_VKMs.csv",
         )
@@ -631,12 +644,17 @@ def process_hdf(
         warnings.warn("No route summary produce")
 
     if route_through_path is not None:
+        if route_summary_path is None:
+            raise ValueError(
+                "somehow route through data is produced but"
+                " not summary data, this shouldn't be possible"
+            )
+
         _aggregate_through(
             route_through_path,
             ["origin", "destination", "through"],
             "route_distance",
             "abs_demand",
-            "through",
             ["abs_demand", "through_vkms"],
             output_path=working_directory / f"{path.stem}-ODT_VKMs.csv",
             distance_band_path=route_summary_path,
