@@ -456,15 +456,15 @@ def _aggregate_route_zones(
 
     LOG.info(
         "Processing %s / %s (%s) rows of routes dataset in this chunk",
-        routes_mask.sum(),
-        len(routes_mask),
+        f"{routes_mask.sum():,}",
+        f"{len(routes_mask):,}",
         f"{routes_mask.sum() / len(routes_mask):.0%}",
     )
 
     # Check any route IDs included in the mask aren't in the remaining route zones data
     unique_route_ids = route_zones.loc[routes_mask, "route_id"].unique()
     unique_route_ids = unique_route_ids[
-        unique_route_ids.isin(route_zones.loc[~routes_mask, "route_id"])
+        np.isin(unique_route_ids, route_zones.loc[~routes_mask, "route_id"])
     ]
     if len(unique_route_ids) > 0:
         raise ValueError(
