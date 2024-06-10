@@ -436,7 +436,7 @@ def _aggregate_route_zones(
 
     summary_path = output_path.with_name(output_path.stem + "-route_summary.csv")
     through_path = output_path.with_name(output_path.stem + "-routes_through.csv")
-    LOG.info("Processing chunk containing %s zones: %s", len(zones), zone_str)
+    LOG.info("Processing chunk containing %s zones %s", len(zones), zone_str)
 
     if route_zones["done_row"].all():
         LOG.info("No routes left to do")
@@ -453,6 +453,13 @@ def _aggregate_route_zones(
     routes_mask.loc[route_zones["route_id"].isin(unique_route_ids)] = True
     # Filter out any o, d, t routes that have already been completed in a previous chunk
     routes_mask.loc[route_zones["done_row"].values] = False
+
+    LOG.info(
+        "Processing %s / %s (%s) rows of routes dataset in this chunk",
+        routes_mask.sum(),
+        len(routes_mask),
+        f"{routes_mask.sum() / len(routes_mask):.0%}",
+    )
 
     # Check any route IDs included in the mask aren't in the remaining route zones data
     unique_route_ids = route_zones.loc[routes_mask, "route_id"].unique()
