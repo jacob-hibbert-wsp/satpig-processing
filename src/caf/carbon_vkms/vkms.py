@@ -355,7 +355,6 @@ def _aggregate_through(
     db_data = pd.read_csv(
         distance_band_path, usecols=["route_id", distance_band_column], index_col="route_id"
     )
-    db_data = db_data.loc[db_data.index.duplicated()]
 
     ungrouped = ungrouped.merge(
         db_data,
