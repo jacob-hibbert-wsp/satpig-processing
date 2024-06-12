@@ -6,9 +6,12 @@
 import itertools
 import logging
 import pathlib
+import warnings
+from typing import Literal, Optional
 
 import pandas as pd
 import pydantic
+from carbon_vkms import utils
 
 import caf.toolkit as ctk
 
@@ -49,6 +52,7 @@ ODT_COLUMNS_RENAME = {
 class _Config(ctk.BaseConfig):
     vkms_folders: list[pydantic.DirectoryPath]
     output_folder: pydantic.DirectoryPath
+    through_zone_lookup: Optional[pydantic.FilePath] = None
 
 
 def _drop_negative_zones(data: pd.DataFrame, name: str) -> pd.DataFrame:
@@ -86,7 +90,12 @@ def _data_summary(data: pd.DataFrame, name: str) -> pd.DataFrame:
     return summary
 
 
-def process(path: pathlib.Path, output_folder: pathlib.Path):
+def process(
+    path: pathlib.Path,
+    output_folder: pathlib.Path,
+    through_zones_lookup: pathlib.Path,
+    output_mode: Literal["csv", "excel"] = "csv",
+):
     od_path = path.with_name(path.stem + "-OD_VKMs.csv")
     through_path = path.with_name(path.stem + "-ODT_VKMs.csv")
 
@@ -114,20 +123,44 @@ def process(path: pathlib.Path, output_folder: pathlib.Path):
     pivoted = through_data.unstack(level="through").reorder_levels([1, 0], axis=1)
     pivoted = pivoted.sort_index(axis=1, sort_remaining=False)
 
+    if through_zones_lookup is not None:
+        # TODO Column names should be module constants
+        lookup = pd.read_csv(
+            through_zones_lookup, usecols=["lad", "through_name"], index_col="lad"
+        )
+        pivoted = pivoted.rename(columns=lookup["through_name"].to_dict(), level=0)
+
     od_data.columns = pd.MultiIndex.from_tuples([("OD", i) for i in od_data.columns])
     combined = od_data.merge(
         pivoted, how="outer", validate="1:1", left_index=True, right_index=True
     )
 
     # Writing to Excel is really slow, so try outputting to CSVs
+    timer = utils.Timer()
     LOG.info("Producing VKMs output")
-    out_path = output_folder / f"{path.stem}-VKMs_summary.csv"
-    summary.to_csv(out_path)
-    LOG.info("Written: %s", out_path)
+    if output_mode == "csv":
+        out_path = output_folder / f"{path.stem}-VKMs_summary.csv"
+        summary.to_csv(out_path)
+        LOG.info('Written in %s "%s"', timer.time_taken(True), out_path)
 
-    out_path = output_folder / f"{path.stem}-VKMs.csv"
-    combined.to_csv(out_path)
-    LOG.info("Written: %s", out_path)
+        out_path = output_folder / f"{path.stem}-VKMs.csv"
+        combined.to_csv(out_path)
+        LOG.info('Written in %s "%s"', timer.time_taken(), out_path)
+
+    elif output_mode == "excel":
+        warnings.warn("Writing dataset to Excel is very slow with large data")
+
+        out_path = output_folder / f"{path.stem}-VKMs.xlsx"
+        with pd.ExcelWriter(out_path, engine="xlsxwriter") as excel:
+            summary.to_excel(excel, sheet_name="Summary")
+            combined.to_excel(excel, sheet_name="VKMs")
+
+        LOG.info('Written to Excel in %s - "%s"', timer.time_taken(), out_path)
+
+    else:
+        raise ValueError(
+            f"unexpected value for output_mode ('{output_mode}') should be 'csv' or 'excel'"
+        )
 
 
 def main() -> None:
@@ -149,9 +182,12 @@ def main() -> None:
             output_folder.mkdir(exist_ok=True)
 
             for path in folder.glob("*.h5"):
-                process(path, output_folder)
-                break
-            break
+                process(
+                    path,
+                    output_folder,
+                    through_zones_lookup=parameters.through_zone_lookup,
+                    output_mode="csv",
+                )
 
 
 ##### MAIN #####
