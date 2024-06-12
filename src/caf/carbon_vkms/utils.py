@@ -93,7 +93,7 @@ def simple_warning_format(
 ) -> str:
     del args, kwargs
     path = pathlib.Path(filename)
-    return f"{path.parent.name}/{path.name}:{lineno}: {category.__name__}: {message}"
+    return f"{path.parent.name}/{path.name}:{lineno}: {category.__name__}: {message}\n"
 
 
 def shorten_list(values: collections.abc.Sequence, length: int, fmt_str: str = "{}") -> str:
