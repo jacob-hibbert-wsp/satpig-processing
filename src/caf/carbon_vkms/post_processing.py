@@ -33,7 +33,14 @@ OD_COLUMNS_RENAME = {
     "total_abs_demand": "Trips",
     "total_route_vkms": "VKMs",
 }
-_DISTANCE_BANDS = ["< 1.6km", "1.6 - 8.0km", "16.1 - 40.2km", "40.2 - 80.5km", ">= 80.5km"]
+_DISTANCE_BANDS = [
+    "< 1.6km",
+    "1.6 - 8.0km",
+    "8.0 - 16.1km",
+    "16.1 - 40.2km",
+    "40.2 - 80.5km",
+    ">= 80.5km",
+]
 _BAND_DATA_NAMES = ["abs_demand", "through_vkms"]
 ODT_DATA_COLUMNS = INDEX_COLUMNS + [
     f"total_{i} - {j}" for i, j in itertools.product(_DISTANCE_BANDS, _BAND_DATA_NAMES)
