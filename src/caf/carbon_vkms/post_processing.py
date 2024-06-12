@@ -171,6 +171,7 @@ def main() -> None:
 
     with ctk.LogHelper("", details, log_file=log_file):
 
+        timer = utils.Timer()
         for i, folder in enumerate(parameters.vkms_folders, start=1):
             LOG.info(
                 "Post Processing VKMs folder %s (%s / %s)",
@@ -181,13 +182,29 @@ def main() -> None:
             output_folder = parameters.output_folder / folder.name
             output_folder.mkdir(exist_ok=True)
 
-            for path in folder.glob("*.h5"):
+            file_paths = list(folder.glob("*.h5"))
+            for j, path in enumerate(file_paths, start=1):
                 process(
                     path,
                     output_folder,
                     through_zones_lookup=parameters.through_zone_lookup,
                     output_mode="csv",
                 )
+                LOG.info(
+                    'Done "%s" %s / %s (%s)',
+                    path.name,
+                    j,
+                    len(file_paths),
+                    f"{j/len(file_paths):.0%}",
+                )
+
+            LOG.info(
+                "Done VKMs folder %s / %s (%s) in %s",
+                i,
+                len(parameters.vkms_folders),
+                f"{i / len(parameters.vkms_folders):.0%}",
+                timer.time_taken(True),
+            )
 
 
 ##### MAIN #####
