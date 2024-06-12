@@ -1,0 +1,10 @@
+# Path to folder to save outputs, will create sub-folders with names of vkms folder
+output_folder:
+# List of paths to folders containing VKMs outputs
+vkms_folders:
+  - path/to/folder 1
+  - path/to/folder 2
+  # Etc...
+
+# Optional path to lookup file for converting through zone IDs to through zone names
+through_zone_lookup:

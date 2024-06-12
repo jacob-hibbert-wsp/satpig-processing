@@ -133,3 +133,7 @@ dmypy.json
 
 # VS Code
 .vscode/
+
+# Exclude YAML config files but keep example files
+*.yml
+!*-example.yml
