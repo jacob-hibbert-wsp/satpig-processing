@@ -433,6 +433,7 @@ def _aggregate_route_zones(
             + ", ".join(str(i) for i in zones[-5:])
         )
 
+    # TODO Use VKMSOutputPaths as an input parameter to provide output paths
     summary_path = output_path.with_name(output_path.stem + "-route_summary.csv")
     through_path = output_path.with_name(output_path.stem + "-routes_through.csv")
     LOG.info("Processing chunk containing %s zones %s", len(zones), zone_str)
@@ -574,6 +575,43 @@ def _aggregate_route_zones(
     return route_zones, summary_path, through_path
 
 
+class VKMSOutputPaths:
+    """Manages creating VKMs output paths."""
+
+    def __init__(self, satpig_path: pathlib.Path, output_folder: pathlib.Path) -> None:
+        self.satpig_path = pathlib.Path(satpig_path)
+        self.output_folder = pathlib.Path(output_folder)
+
+        if not self.satpig_path.is_file():
+            raise FileNotFoundError(f"cannot find SATPIG file: {self.satpig_path}")
+
+        if not self.output_folder.is_dir():
+            raise NotADirectoryError(f"output folder doesn't exist: {self.output_folder}")
+
+    @property
+    def aggregate_base_path(self) -> pathlib.Path:
+        """Base path for full dataset produced during chunked process."""
+        return self.output_folder / f"{self.satpig_path.stem}_aggregated.csv"
+
+    @property
+    def od_path(self) -> pathlib.Path:
+        """Path for final output of OD VKMs."""
+        return self.output_folder / f"{self.satpig_path.stem}-OD_VKMs.csv"
+
+    @property
+    def through_path(self) -> pathlib.Path:
+        """Path for final output of OD-Through VKMs."""
+        return self.output_folder / f"{self.satpig_path.stem}-ODT_VKMs.csv"
+
+    def check_vkms_exist(self, inc_aggregate: bool = False) -> bool:
+        exist = self.od_path.is_file() and self.through_path.is_file()
+
+        if inc_aggregate and exist:
+            exist = exist and self.aggregate_base_path.is_file()
+
+        return exist
+
+
 def process_hdf(
     path: pathlib.Path,
     links_data_path: pathlib.Path,
@@ -582,6 +620,18 @@ def process_hdf(
     chunk_size: int = 100,
     zone_filter: Optional[Sequence[int]] = None,
 ) -> None:
+    output_paths = VKMSOutputPaths(path, working_directory)
+    if output_paths.check_vkms_exist():
+        # TODO Add overwrite parameter to reproduce the VKM output
+        # regardless of if they already exist
+        LOG.info(
+            "VKM outputs for %s already exist:\nOD output: %s\nODT output: %s",
+            output_paths.satpig_path.name,
+            output_paths.od_path,
+            output_paths.through_path,
+        )
+        return
+
     # Copy HDF file to working directory to make changes
     LOG.info(
         "Copying SATPig HDF file (%s) into working directory: %s", path.name, working_directory
@@ -623,7 +673,7 @@ def process_hdf(
                 route_zones,
                 np.array(chunk),
                 through_lookup,
-                working_directory / f"{path.stem}_aggregated.csv",
+                output_paths.aggregate_base_path,
                 header=i == 1,
             )
             LOG.info(
@@ -644,7 +694,7 @@ def process_hdf(
             "route_distance",
             "abs_demand",
             ["abs_demand", "route_vkms"],
-            output_path=working_directory / f"{path.stem}-OD_VKMs.csv",
+            output_path=output_paths.od_path,
         )
     else:
         warnings.warn("No route summary produce")
@@ -662,7 +712,7 @@ def process_hdf(
             "route_distance",
             "abs_demand",
             ["abs_demand", "through_vkms"],
-            output_path=working_directory / f"{path.stem}-ODT_VKMs.csv",
+            output_path=output_paths.through_path,
             distance_band_path=route_summary_path,
         )
     else:

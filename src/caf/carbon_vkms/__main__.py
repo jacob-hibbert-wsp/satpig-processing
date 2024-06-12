@@ -17,6 +17,7 @@ from carbon_vkms import utils, vkms
 
 LOG = logging.getLogger(__name__)
 _CONFIG_FILE = pathlib.Path(__package__).with_suffix(".yml")
+VKMS_IGNORE_FOLDER_EXISTS = utils.getenv_bool("VKMS_IGNORE_FOLDER_EXISTS", False)
 
 
 ##### CLASSES & FUNCTIONS #####
@@ -36,10 +37,21 @@ def main() -> None:
         output_folder.mkdir(exist_ok=False, parents=True)
 
     except FileExistsError as exc:
-        raise SystemExit(
-            f'Output run folder already exists: "{output_folder.absolute()}"'
-            "\nPlease rename or move this folder before re-running."
-        ) from exc
+        msg = f'Output run folder already exists: "{output_folder.absolute()}"'
+
+        if VKMS_IGNORE_FOLDER_EXISTS:
+            warnings.warn(
+                msg + "\nContinuing outputting to folder because "
+                f"env variable {VKMS_IGNORE_FOLDER_EXISTS=}",
+                RuntimeWarning,
+            )
+
+        else:
+            raise SystemExit(
+                msg + "\nPlease rename or move this folder before re-running."
+                "\nSet environment variable VKMS_IGNORE_FOLDER_EXISTS=true"
+                " to ignore this error."
+            ) from exc
 
     log_file = output_folder / "satpig_tests.log"
 
