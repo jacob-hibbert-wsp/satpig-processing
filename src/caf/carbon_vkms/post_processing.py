@@ -191,19 +191,28 @@ def main() -> None:
 
             file_paths = list(folder.glob("*.h5"))
             for j, path in enumerate(file_paths, start=1):
-                process(
-                    path,
-                    output_folder,
-                    through_zones_lookup=parameters.through_zone_lookup,
-                    output_mode="csv",
-                )
-                LOG.info(
-                    'Done "%s" %s / %s (%s)',
-                    path.name,
-                    j,
-                    len(file_paths),
-                    f"{j/len(file_paths):.0%}",
-                )
+                try:
+                    process(
+                        path,
+                        output_folder,
+                        through_zones_lookup=parameters.through_zone_lookup,
+                        output_mode="csv",
+                    )
+                    LOG.info(
+                        'Done "%s" %s / %s (%s)',
+                        path.name,
+                        j,
+                        len(file_paths),
+                        f"{j/len(file_paths):.0%}",
+                    )
+
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    LOG.error(
+                        "Failed post-processing on %s, %s: %s",
+                        path.name,
+                        exc.__class__.__name__,
+                        exc,
+                    )
 
             LOG.info(
                 "Done VKMs folder %s / %s (%s) in %s",
