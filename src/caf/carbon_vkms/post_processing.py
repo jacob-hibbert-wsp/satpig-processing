@@ -102,6 +102,7 @@ def process(
     output_folder: pathlib.Path,
     through_zones_lookup: pathlib.Path,
     output_mode: Literal["csv", "excel"] = "csv",
+    overwrite: bool = False,
 ):
     od_path = path.with_name(path.stem + "-OD_VKMs.csv")
     through_path = path.with_name(path.stem + "-ODT_VKMs.csv")
@@ -110,6 +111,20 @@ def process(
     if len(missing) > 0:
         raise FileNotFoundError(
             f'cannot find VKMs files ({" and ".join(missing)}) in folder:\n"{path}"'
+        )
+
+    if output_mode == "csv":
+        output_path = output_folder / f"{path.stem}-VKMs.csv"
+    elif output_mode == "excel":
+        output_path = output_folder / f"{path.stem}-VKMs.xlsx"
+    else:
+        raise ValueError(f"output_mode should be 'csv' or 'excel' not '{output_mode}'")
+
+    if not overwrite and output_path.is_file():
+        LOG.info(
+            "Output already produced for '%s' and overwrite is false: %s",
+            path.name,
+            output_path,
         )
 
     LOG.info("Reading %s", od_path.name)
@@ -146,28 +161,21 @@ def process(
     timer = utils.Timer()
     LOG.info("Producing VKMs output")
     if output_mode == "csv":
-        out_path = output_folder / f"{path.stem}-VKMs_summary.csv"
+        out_path = output_path.with_name(output_path.stem + "_summary.csv")
         summary.to_csv(out_path)
         LOG.info('Written in %s "%s"', timer.time_taken(True), out_path)
 
-        out_path = output_folder / f"{path.stem}-VKMs.csv"
-        combined.to_csv(out_path)
-        LOG.info('Written in %s "%s"', timer.time_taken(), out_path)
+        combined.to_csv(output_path)
+        LOG.info('Written in %s "%s"', timer.time_taken(), output_path)
 
     elif output_mode == "excel":
         warnings.warn("Writing dataset to Excel is very slow with large data")
 
-        out_path = output_folder / f"{path.stem}-VKMs.xlsx"
-        with pd.ExcelWriter(out_path, engine="xlsxwriter") as excel:
+        with pd.ExcelWriter(output_path, engine="xlsxwriter") as excel:
             summary.to_excel(excel, sheet_name="Summary")
             combined.to_excel(excel, sheet_name="VKMs")
 
-        LOG.info('Written to Excel in %s - "%s"', timer.time_taken(), out_path)
-
-    else:
-        raise ValueError(
-            f"unexpected value for output_mode ('{output_mode}') should be 'csv' or 'excel'"
-        )
+        LOG.info('Written to Excel in %s - "%s"', timer.time_taken(), output_path)
 
 
 def main() -> None:
