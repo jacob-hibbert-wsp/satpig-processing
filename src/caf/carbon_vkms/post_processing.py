@@ -126,6 +126,7 @@ def process(
             path.name,
             output_path,
         )
+        return
 
     LOG.info("Reading %s", od_path.name)
     od_data = pd.read_csv(od_path, index_col=INDEX_COLUMNS[:2], usecols=OD_DATA_COLUMNS)
