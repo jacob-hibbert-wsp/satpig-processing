@@ -244,6 +244,7 @@ def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
         right_index=True,
         validate="m:1",
         indicator=True,
+        copy=False,
     ).reset_index()
     LOG.info("Done merge in %s", timer.time_taken(True))
     del routes, zone_lookup
