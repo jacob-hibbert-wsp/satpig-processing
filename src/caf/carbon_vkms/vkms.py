@@ -158,6 +158,8 @@ def _check_merge_indicator(
 def update_links_data(store: pd.HDFStore, link_path: pathlib.Path) -> pd.Series:
     LOG.info("Loading SATPig links data from group '%s'", SATPIG_HDF_GROUPS["links"])
     links = store.get(SATPIG_HDF_GROUPS["links"])
+    for col in LINK_NODE_COLUMNS:
+        links[col] = pd.to_numeric(links[col], downcast="integer")
 
     # Join links data and zones to links
     LOG.info("Loading extra links data from '%s'", link_path.name)
