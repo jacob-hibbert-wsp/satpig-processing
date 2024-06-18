@@ -5,3 +5,4 @@ pytables>=3.9
 tqdm>=4.66
 caf.toolkit>=0.7.1
 openpyxl>=3.1.2
+dask>=2024.6

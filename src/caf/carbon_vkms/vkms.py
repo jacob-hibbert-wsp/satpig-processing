@@ -687,7 +687,7 @@ def _pre_process_hdf(
     path: pathlib.Path,
     links_data_path: pathlib.Path,
     zone_filter: Optional[Sequence[int]] = None,
-) -> tuple[np.NDArray, pd.DataFrame]:
+) -> tuple[np.ndarray, pd.DataFrame]:
     LOG.info("Reading: %s", path.name)
     with pd.HDFStore(path, "r+") as store:
         LOG.info(str(store.info()))
