@@ -14,10 +14,10 @@ import sqlite3
 import warnings
 from typing import Optional, Sequence
 
+import dask.dataframe as dd
 import numpy as np
 import pandas as pd
 import tqdm
-
 from carbon_vkms import utils
 
 ##### CONSTANTS #####
@@ -218,11 +218,11 @@ def update_links_data(store: pd.HDFStore, link_path: pathlib.Path) -> pd.Series:
     return links["zone"].astype(int)
 
 
-def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
+def routes_by_zone(path: pathlib.Path, zone_lookup: pd.Series) -> pd.DataFrame:
     # Produce route zones table with columns: route id, origin zone, destination zone, through zone
     LOG.info("Creating routes zone groupings table")
     timer = utils.Timer()
-    routes = store.get(SATPIG_HDF_GROUPS["routes"])
+    routes = pd.read_hdf(path, SATPIG_HDF_GROUPS["routes"])
     LOG.info(
         "Loaded routes in %s, now joining zones this may take some time",
         timer.time_taken(True),
@@ -285,12 +285,80 @@ def routes_by_zone(store: pd.HDFStore, zone_lookup: pd.Series) -> pd.DataFrame:
         )
 
     route_zones.reset_index().to_hdf(
-        store, key="data/route_zones", complevel=1, format="fixed", index=False
+        path, key="data/route_zones", complevel=1, format="fixed", index=False
     )
 
     LOG.info("Generated table in %s, updating file", timer.time_taken(True))
 
     return route_zones
+
+
+def _routes_by_zone_dask(path: pathlib.Path, zone_lookup: pd.Series) -> pd.DataFrame:
+    # Implementation of routes_by_zone using dask to avoid memory errors
+    # Produce route zones table with columns: route id, origin zone, destination zone, through zone
+    LOG.info("Creating routes zone groupings table with dask")
+    if zone_lookup.index.has_duplicates:
+        dups = zone_lookup.index[zone_lookup.index.duplicated(keep="first")].unique()
+        warnings.warn(
+            f"{len(dups):,} duplicate zones route IDs found in zone"
+            f" lookup: {utils.shorten_list(dups, 10)}",
+            RuntimeWarning,
+        )
+
+    routes: dd.DataFrame = dd.read_hdf(path, SATPIG_HDF_GROUPS["routes"])
+
+    # Join links to routes to get all routes relevant for single MSOA
+    routes = routes.merge(
+        zone_lookup,
+        how="left",
+        left_index=True,
+        right_index=True,
+        indicator=True,
+        # validate="m:1",
+    )
+
+    # TODO Log number of values found each side of merge
+    # _check_merge_indicator(route_zones, "routes", "link zones")
+
+    routes = routes.drop(columns="link_id", errors="ignore")
+    routes = routes.drop_duplicates(subset=["route", "zone"])
+    routes = routes.sort_values(["route", "link_order_id"])[["route", "zone"]]
+    LOG.info("Performing groupby")
+
+    # TODO I think groupby performs dask compute and returns a dataframe???
+    routes: pd.DataFrame = routes.groupby("route").agg(["first", "last", tuple])
+
+    routes.columns = routes.columns.droplevel(0)
+    routes.rename(
+        columns={
+            "": "route_id",
+            "first": "origin",
+            "last": "destination",
+            "tuple": "through",
+        },
+        inplace=True,
+    )
+    routes = routes.explode("through")
+
+    errors = []
+    for c in routes.columns:
+        try:
+            routes[c] = routes[c].astype(int)
+        except (ValueError, pd.errors.IntCastingNaNError) as exc:
+            errors.append(f"column {c!r}: {exc}")
+
+    if len(errors) > 0:
+        raise ValueError(
+            "cannot convert route zones columns to integers:\n" + "\n".join(errors)
+        )
+
+    routes.reset_index().to_hdf(
+        path, key="data/route_zones", complevel=1, format="fixed", index=False
+    )
+
+    LOG.info("Generated table, updating file")
+
+    return routes
 
 
 def _aggregate_routes(
@@ -615,6 +683,36 @@ class VKMSOutputPaths:
         return exist
 
 
+def _pre_process_hdf(
+    path: pathlib.Path,
+    links_data_path: pathlib.Path,
+    zone_filter: Optional[Sequence[int]] = None,
+) -> tuple[np.NDArray, pd.DataFrame]:
+    LOG.info("Reading: %s", path.name)
+    with pd.HDFStore(path, "r+") as store:
+        LOG.info(str(store.info()))
+        zone_lookup = update_links_data(store, links_data_path)
+
+    if zone_filter is None:
+        zones = np.sort(zone_lookup.unique())
+    else:
+        zones = np.sort(zone_filter)
+
+    try:
+        route_zones = routes_by_zone(path, zone_lookup)
+    except MemoryError as exc:
+        LOG.error(
+            "Ran out of memory performing route zone lookup using"
+            " pandas, so attempting to use dask.\n%s: %s",
+            exc.__class__.__name__,
+            exc,
+        )
+        route_zones = _routes_by_zone_dask(path, zone_lookup)
+
+    route_zones["done_row"] = False
+    return zones, route_zones
+
+
 def process_hdf(
     path: pathlib.Path,
     links_data_path: pathlib.Path,
@@ -653,20 +751,10 @@ def process_hdf(
     else:
         through_lookup = {}
 
-    LOG.info("Reading: %s", path.name)
+    zones, route_zones = _pre_process_hdf(path, links_data_path, zone_filter)
+    n_chunks = math.ceil(len(zones) / chunk_size)
+
     with pd.HDFStore(path, "r+") as store:
-        LOG.info(str(store.info()))
-
-        zone_lookup = update_links_data(store, links_data_path)
-        route_zones = routes_by_zone(store, zone_lookup)
-        route_zones["done_row"] = False
-
-        if zone_filter is None:
-            zones = np.sort(zone_lookup.unique())
-        else:
-            zones = np.sort(zone_filter)
-        n_chunks = math.ceil(len(zones) / chunk_size)
-
         # Process chunk of zones
         timer = utils.Timer()
         route_summary_path, route_through_path = None, None
