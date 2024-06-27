@@ -4,7 +4,7 @@
 """
 
 ##### IMPORTS #####
-
+from __future__ import annotations
 import itertools
 import logging
 import math
@@ -18,7 +18,7 @@ import dask.dataframe as dd
 import numpy as np
 import pandas as pd
 import tqdm
-from carbon_vkms import utils
+from caf.carbon_vkms import utils
 
 ##### CONSTANTS #####
 
@@ -155,7 +155,7 @@ def _check_merge_indicator(
         data.drop(columns="_merge", inplace=True)
 
 
-def update_links_data(store: pd.HDFStore, link_path: pathlib.Path) -> pd.Series:
+def update_links_data(store: pd.HDFStore, link_path: pathlib.Path, cost_path: pathlib.Path) -> pd.Series:
     LOG.info("Loading SATPig links data from group '%s'", SATPIG_HDF_GROUPS["links"])
     links = store.get(SATPIG_HDF_GROUPS["links"])
     for col in LINK_NODE_COLUMNS:
@@ -168,6 +168,8 @@ def update_links_data(store: pd.HDFStore, link_path: pathlib.Path) -> pd.Series:
         index_col=LINK_NODE_COLUMNS,
         usecols=[*LINK_NODE_COLUMNS, "zone", *LINK_DATA_COLUMNS],
     )
+
+    link_cost = pd.read_csv(cost_path)
 
     duplicates = lookup.index.duplicated().sum()
     if duplicates > 0:
@@ -686,12 +688,13 @@ class VKMSOutputPaths:
 def _pre_process_hdf(
     path: pathlib.Path,
     links_data_path: pathlib.Path,
+    link_cost_path: pathlib.Path,
     zone_filter: Optional[Sequence[int]] = None,
 ) -> tuple[np.ndarray, pd.DataFrame]:
     LOG.info("Reading: %s", path.name)
     with pd.HDFStore(path, "r+") as store:
         LOG.info(str(store.info()))
-        zone_lookup = update_links_data(store, links_data_path)
+        zone_lookup = update_links_data(store, links_data_path, link_cost_path)
 
     if zone_filter is None:
         zones = np.sort(zone_lookup.unique())
@@ -716,6 +719,7 @@ def _pre_process_hdf(
 def process_hdf(
     path: pathlib.Path,
     links_data_path: pathlib.Path,
+    cost_data_path: pathlib.Path,
     working_directory: pathlib.Path,
     through_lookup_path: Optional[pathlib.Path] = None,
     chunk_size: int = 100,
@@ -751,7 +755,7 @@ def process_hdf(
     else:
         through_lookup = {}
 
-    zones, route_zones = _pre_process_hdf(path, links_data_path, zone_filter)
+    zones, route_zones = _pre_process_hdf(path, links_data_path, cost_data_path, zone_filter)
     n_chunks = math.ceil(len(zones) / chunk_size)
 
     with pd.HDFStore(path, "r+") as store:

@@ -11,13 +11,14 @@ import warnings
 import caf.toolkit as ctk
 import pandas as pd
 
-from carbon_vkms import utils, vkms
+from caf.carbon_vkms import utils, vkms
 
 ##### CONSTANTS #####
 
 LOG = logging.getLogger(__name__)
-_CONFIG_FILE = pathlib.Path(__package__).with_suffix(".yml")
-VKMS_IGNORE_FOLDER_EXISTS = utils.getenv_bool("VKMS_IGNORE_FOLDER_EXISTS", False)
+_CONFIG_FILE = pathlib.Path("carbon_vkms.yml")
+#VKMS_IGNORE_FOLDER_EXISTS = utils.getenv_bool("VKMS_IGNORE_FOLDER_EXISTS", False)
+VKMS_IGNORE_FOLDER_EXISTS = True
 
 
 ##### CLASSES & FUNCTIONS #####
@@ -57,13 +58,15 @@ def main() -> None:
 
     with ctk.LogHelper("", ctk.ToolDetails("satpig_test", "0.1.0"), log_file=log_file):
         LOG.info("Loading zone filters from: %s", params.zone_filter_path)
-        zone_filter = pd.read_csv(params.zone_filter_path, usecols=["zone"])["zone"].tolist()
-        LOG.info(
-            "%s zones included in filter: %s",
-            len(zone_filter),
-            utils.shorten_list(zone_filter, 10),
-        )
-
+        if params.zone_filter_path is not None:
+            zone_filter = pd.read_csv(params.zone_filter_path, usecols=["zone"])["zone"].tolist()
+            LOG.info(
+                "%s zones included in filter: %s",
+                len(zone_filter),
+                utils.shorten_list(zone_filter, 10),
+            )
+        else:
+            zone_filter = None
         timer = utils.Timer()
         for scenario in params.scenario_paths:
             LOG.info("Producing VKMs for all SATPIG files in: %s", scenario.folder.resolve())
@@ -78,6 +81,7 @@ def main() -> None:
                     vkms.process_hdf(
                         path,
                         scenario.link_data,
+                        scenario.link_cost,
                         working_directory,
                         through_lookup_path=params.through_zones_lookup,
                         chunk_size=params.chunk_size,

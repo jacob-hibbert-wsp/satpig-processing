@@ -4,6 +4,7 @@
 """
 
 ##### IMPORTS #####
+from __future__ import annotations
 
 import collections.abc
 import logging
@@ -41,6 +42,7 @@ class ScenarioPaths:
 
     folder: pydantic.DirectoryPath
     link_data: pydantic.FilePath
+    link_cost: pydantic.FilePath
 
 
 class CarbonVKMConfig(ctk.BaseConfig):
