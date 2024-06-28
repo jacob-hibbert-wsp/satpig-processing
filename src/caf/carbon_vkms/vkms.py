@@ -26,7 +26,7 @@ LOG = logging.getLogger(__name__)
 SATPIG_HDF_GROUPS = {"od": "data/OD", "routes": "data/Route", "links": "data/link"}
 LINK_DATA_COLUMNS = ["speed", "distance"]
 LINK_NODE_COLUMNS = ["a", "b"]
-_LINKS_FILLNA = {"zone": -1, "speed": 48.0, "distance": 1.0}
+_LINKS_FILLNA = {"zone": -1, "speed": 48.0, "distance": 1.0, "uncongested_time_s": 0, "congested_time_s": 0}
 _VKMS_OUTPUT_RENAMING = {
     "origin": "origin_zone_id",
     "destination": "destination_zone_id",
@@ -158,6 +158,8 @@ def _check_merge_indicator(
 def update_links_data(store: pd.HDFStore, link_path: pathlib.Path, cost_path: pathlib.Path) -> pd.Series:
     LOG.info("Loading SATPig links data from group '%s'", SATPIG_HDF_GROUPS["links"])
     links = store.get(SATPIG_HDF_GROUPS["links"])
+    #TODO make sure index is link Id
+
     for col in LINK_NODE_COLUMNS:
         links[col] = pd.to_numeric(links[col], downcast="integer")
 
@@ -169,11 +171,23 @@ def update_links_data(store: pd.HDFStore, link_path: pathlib.Path, cost_path: pa
         usecols=[*LINK_NODE_COLUMNS, "zone", *LINK_DATA_COLUMNS],
     )
 
-    link_cost = pd.read_csv(cost_path)
+    link_cost = pd.read_csv(cost_path, usecols=["A", "B", "uncongested_time_s", "congested_time_s"]).rename(columns = {"A":"a", "B": "b"})
+    link_cost = link_cost.set_index(["a", "b"])
 
     duplicates = lookup.index.duplicated().sum()
     if duplicates > 0:
         raise ValueError(f"{duplicates} duplicate links found in links lookup")
+    
+    links  = links.merge(
+        link_cost,
+        left_on=LINK_NODE_COLUMNS,
+        right_index = True, 
+        how="left",
+        validate="1:1",
+        indicator=True,
+        copy = False
+    )
+    _check_merge_indicator(links, "SATPig", "Links cost")
 
     # Load link lookup and set link zones
     links = links.merge(
@@ -216,7 +230,6 @@ def update_links_data(store: pd.HDFStore, link_path: pathlib.Path, cost_path: pa
 
     store.put(SATPIG_HDF_GROUPS["links"], links, format="fixed", complevel=1)
     LOG.info("Updated links data in group '%s'", SATPIG_HDF_GROUPS["links"])
-
     return links["zone"].astype(int)
 
 
@@ -497,6 +510,7 @@ def _aggregate_route_zones(
     output_path: pathlib.Path,
     header: bool = True,
 ) -> tuple[pd.DataFrame | None, pathlib.Path, pathlib.Path]:
+    #TODO sum the (un)congested costs (groupby o, d, through zone, route_id)
     if len(zones) <= 20:
         zone_str = ", ".join(str(i) for i in zones)
     else:
@@ -640,7 +654,7 @@ def _aggregate_route_zones(
         od, how="left", validate="1:1", left_index=True, right_index=True
     )
     routes_through["through_vkms"] = routes_through["distance"] * routes_through["abs_demand"]
-
+    #TODO also output in queriable & appendable format (e.g h5 table format) 
     routes_through.to_csv(through_path, **csv_kwargs)
     LOG.info("Written: %s", through_path)
 
@@ -771,6 +785,7 @@ def process_hdf(
                 output_paths.aggregate_base_path,
                 header=i == 1,
             )
+
             LOG.info(
                 "Done chunk %s / %s (%s) in %s",
                 i,

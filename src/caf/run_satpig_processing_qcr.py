@@ -14,6 +14,7 @@ File purpose:
 
 # Third Party
 import os
+import pathlib
 import sys
 #print(os.getcwd())
 # Local Imports
@@ -46,27 +47,33 @@ TP_LIST = ['TS1',
            'TS3',
            ]
 
+FILE_LIST = [
+    pathlib.Path(r"G:\TINA\route_skim_inputs\SATPIG_Base2018_TS1\PathFlow_MRNBase_i8c_2018_TS1_uc2.CSV"),
+    pathlib.Path(r"G:\TINA\route_skim_inputs\SATPIG_Base2018_TS1\PathFlow_MRNBase_i8c_2018_TS1_uc3.CSV"),
+    pathlib.Path(r"G:\TINA\route_skim_inputs\SATPIG_Base2018_TS2\PathFlow_MRNBase_i8c_2018_TS2_uc2.CSV"),
+    pathlib.Path(r"G:\TINA\route_skim_inputs\SATPIG_Base2018_TS2\PathFlow_MRNBase_i8c_2018_TS2_uc3.CSV"),
+    pathlib.Path(r"G:\TINA\route_skim_inputs\SATPIG_Base2018_TS3\PathFlow_MRNBase_i8c_2018_TS3_uc2.CSV"),
+    pathlib.Path(r"G:\TINA\route_skim_inputs\SATPIG_Base2018_TS3\PathFlow_MRNBase_i8c_2018_TS3_uc3.CSV"),
+]
+OUTPUT_FOLDER = pathlib.Path()
+
 # # # CLASSES # # #
 
 # # # FUNCTIONS # # #
-def call_satpig_processing(home_folder: str,
-                           year: str,
-                           scenario: str,
-                           tp: str,
-                           uc: str,
+def call_satpig_processing(satpig_path: pathlib.Path, output_dir: pathlib.Path
                            ) -> None:
  
     # read satpig extract
-    satpig_file = rf"NoHAM_QCR_DM_{scenario}_{year}_{tp}_v107_SatPig_uc{uc}"
-    satpig_folder = os.path.join(home_folder, year, scenario)
-    satpig_path = os.path.join(satpig_folder, rf"{satpig_file}.csv")
+    #satpig_file = rf"NoHAM_QCR_DM_{scenario}_{year}_{tp}_v107_SatPig_uc{uc}"
+    #satpig_folder = os.path.join(home_folder, year, scenario)
+    #satpig_path = os.path.join(satpig_folder, rf"{satpig_file}.csv")
 
-    print(rf"Satpig processing initiated for: {satpig_file}")
+    print(rf"Satpig processing initiated for: {satpig_path.stem}")
     df = loading.read_satpig(satpig_path)
     df.set_index(['o','d','route','uc', 'total_links'], inplace=True)
 
     # save processed satpig
-    processed_satpig_path = os.path.join(r"C:\Users\genie\JacobHibbert_Secondment\satpig_output", rf"{satpig_file}.h5")
+    processed_satpig_path = (output_dir / satpig_path.name).with_suffix(".hdf")
     print("saving")
     df[['abs_demand', 'pct_demand']].to_hdf(processed_satpig_path,key="/data/OD",format = 'fixed', complevel=1)
     print('OD Done')
@@ -88,21 +95,14 @@ def call_satpig_processing(home_folder: str,
     df.set_index(['link_id'],inplace = True)
     df[['a','b']].to_hdf(processed_satpig_path, key="/data/link",format = 'fixed', complevel=1)#,data_columns = ['link_id','a','b'], errors='ignore', index = False)
     print('link done')
-    print(rf"Satpig processing completed for {year}, {scenario}, {tp}, {uc}!")
+    print(rf"Satpig processing completed for {satpig_path.stem}!")
 
 def main():
-    for year in YEAR_LIST:
-        for scenario in SCENARIO_LIST:
-            for tp in TP_LIST:
-                for uc in USERCLASS_LIST:
-                    try:
-                        call_satpig_processing(HOME_FOLDER,
-                                           year,
-                                           scenario,
-                                           tp,
-                                           uc)
-                    except Exception:
-                        print(rf"Could not produce: {year}, {scenario}, {tp}, {uc}!")
+    for file in FILE_LIST:
+        try:
+            call_satpig_processing(file, OUTPUT_FOLDER)
+        except Exception:
+            print(rf"Could not produce: {file.name}!")
 
 if __name__=="__main__":
     main()
