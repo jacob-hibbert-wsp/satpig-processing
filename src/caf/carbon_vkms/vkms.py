@@ -648,7 +648,7 @@ def _aggregate_route_zones(
 
     routes_through = route_data.groupby(["route_id", "origin", "destination", "through"])[
         LINK_DATA_COLUMNS
-    ].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
+    ].aggregate({"speed": distance_weighted_mean, "distance": "sum", "uncongested_time_s": "sum", "congested_time_s": "sum"})
 
     routes_through = routes_through.merge(
         od, how="left", validate="1:1", left_index=True, right_index=True
@@ -656,6 +656,7 @@ def _aggregate_route_zones(
     routes_through["through_vkms"] = routes_through["distance"] * routes_through["abs_demand"]
     #TODO also output in queriable & appendable format (e.g h5 table format) 
     routes_through.to_csv(through_path, **csv_kwargs)
+    routes_through.to_hdf(through_path.with_suffix(".h5"), key="route_skims", mode="a", format="fixed")
     LOG.info("Written: %s", through_path)
 
     route_zones.loc[routes_mask.values, "done_row"] = True
