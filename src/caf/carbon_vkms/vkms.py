@@ -18,15 +18,21 @@ import dask.dataframe as dd
 import numpy as np
 import pandas as pd
 import tqdm
-from caf.carbon_vkms import utils
+from carbon_vkms import utils
 
 ##### CONSTANTS #####
 
 LOG = logging.getLogger(__name__)
-SATPIG_HDF_GROUPS = {"od": "data/OD", "routes": "data/Route", "links": "data/link"}
+SATPIG_HDF_GROUPS = {"od": "/data/OD", "routes": "data/Route", "links": "data/link"}
 LINK_DATA_COLUMNS = ["speed", "distance"]
 LINK_NODE_COLUMNS = ["a", "b"]
-_LINKS_FILLNA = {"zone": -1, "speed": 48.0, "distance": 1.0, "uncongested_time_s": 0, "congested_time_s": 0}
+_LINKS_FILLNA = {
+    "zone": -1,
+    "speed": 48.0,
+    "distance": 1.0,
+    "uncongested_time_s": 0,
+    "congested_time_s": 0,
+}
 _VKMS_OUTPUT_RENAMING = {
     "origin": "origin_zone_id",
     "destination": "destination_zone_id",
@@ -155,10 +161,12 @@ def _check_merge_indicator(
         data.drop(columns="_merge", inplace=True)
 
 
-def update_links_data(store: pd.HDFStore, link_path: pathlib.Path, cost_path: pathlib.Path) -> pd.Series:
+def update_links_data(
+    store: pd.HDFStore, link_path: pathlib.Path, cost_path: pathlib.Path
+) -> pd.Series:
     LOG.info("Loading SATPig links data from group '%s'", SATPIG_HDF_GROUPS["links"])
     links = store.get(SATPIG_HDF_GROUPS["links"])
-    #TODO make sure index is link Id
+    # TODO make sure index is link Id
 
     for col in LINK_NODE_COLUMNS:
         links[col] = pd.to_numeric(links[col], downcast="integer")
@@ -171,21 +179,23 @@ def update_links_data(store: pd.HDFStore, link_path: pathlib.Path, cost_path: pa
         usecols=[*LINK_NODE_COLUMNS, "zone", *LINK_DATA_COLUMNS],
     )
 
-    link_cost = pd.read_csv(cost_path, usecols=["A", "B", "uncongested_time_s", "congested_time_s"]).rename(columns = {"A":"a", "B": "b"})
+    link_cost = pd.read_csv(
+        cost_path, usecols=["A", "B", "uncongested_time_s", "congested_time_s"]
+    ).rename(columns={"A": "a", "B": "b"})
     link_cost = link_cost.set_index(["a", "b"])
 
     duplicates = lookup.index.duplicated().sum()
     if duplicates > 0:
         raise ValueError(f"{duplicates} duplicate links found in links lookup")
-    
-    links  = links.merge(
+
+    links = links.merge(
         link_cost,
         left_on=LINK_NODE_COLUMNS,
-        right_index = True, 
+        right_index=True,
         how="left",
         validate="1:1",
         indicator=True,
-        copy = False
+        copy=False,
     )
     _check_merge_indicator(links, "SATPig", "Links cost")
 
@@ -510,7 +520,7 @@ def _aggregate_route_zones(
     output_path: pathlib.Path,
     header: bool = True,
 ) -> tuple[pd.DataFrame | None, pathlib.Path, pathlib.Path]:
-    #TODO sum the (un)congested costs (groupby o, d, through zone, route_id)
+    # TODO sum the (un)congested costs (groupby o, d, through zone, route_id)
     if len(zones) <= 20:
         zone_str = ", ".join(str(i) for i in zones)
     else:
@@ -648,16 +658,35 @@ def _aggregate_route_zones(
 
     routes_through = route_data.groupby(["route_id", "origin", "destination", "through"])[
         LINK_DATA_COLUMNS
-    ].aggregate({"speed": distance_weighted_mean, "distance": "sum", "uncongested_time_s": "sum", "congested_time_s": "sum"})
+    ].aggregate(
+        {
+            "speed": distance_weighted_mean,
+            "distance": "sum",
+            "uncongested_time_s": "sum",
+            "congested_time_s": "sum",
+        }
+    )
 
     routes_through = routes_through.merge(
         od, how="left", validate="1:1", left_index=True, right_index=True
     )
     routes_through["through_vkms"] = routes_through["distance"] * routes_through["abs_demand"]
-    #TODO also output in queriable & appendable format (e.g h5 table format) 
+    # TODO also output in queriable & appendable format (e.g h5 table format)
     routes_through.to_csv(through_path, **csv_kwargs)
-    routes_through.to_hdf(through_path.with_suffix(".h5"), key="route_skims", mode="a", format="fixed")
     LOG.info("Written: %s", through_path)
+
+    # maybe parquet or db
+
+    LOG.info("Writting to: %s", through_path.with_suffix(suffix=".h5"))
+    routes_through.to_hdf(
+        through_path.with_suffix(suffix=".h5"),
+        key="route_skims",
+        mode="a",
+        format="table",
+        append=True,
+        complevel=1,
+    )
+    LOG.info("Written: %s", through_path.with_suffix(suffix=".h5"))
 
     route_zones.loc[routes_mask.values, "done_row"] = True
     return route_zones, summary_path, through_path

@@ -187,3 +187,4 @@ zipp=3.11.0=py310haa95532_0
 zlib=1.2.13=h8cc25b3_0
 zlib-ng=2.0.7=h2bbff1b_0
 zstd=1.5.5=hd43e919_0
+python=3.12
