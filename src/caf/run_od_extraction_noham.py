@@ -18,7 +18,7 @@ from OD_extraction import demand_extraction_noham as extraction
 
 
 # # # CONSTANTS # # #
-SATPIG_PATH = r"G:\raw_data\4019 - road OD flows\Satpig\QCR"
+SATPIG_PATH = r"G:\raw_data\4001, 4008, 4019, 4026 - Highway OD flows\raw_data\Satpig\QCR"
 YEAR = r"2018"
 
 CAF_SPACE_PATH = r"G:\raw_data\caf.space\noham_link_to_lta"
@@ -31,7 +31,7 @@ ZONING_2 = r"lta"
 P1XDUMP_PATH = r"G:\raw_data\4027 - speed & network delay\p1xdump\QCR"
 
 # # # VARIABLES # # #
-STUDY_AREA = [r"City of York", r"North Yorkshire Council"] # extract this from the lookup used in the process (LTA, LAD, etc.)
+STUDY_AREA = r"Westmorland and Furness" # extract this from the lookup used in the process (LTA, LAD, etc.)
 
 USER_CLASS_LIST = ['uc1',
                    'uc2',
@@ -46,7 +46,7 @@ TIME_PERIOD_LIST = ['TS1',
                    ]
 
 # # # DATA REQUEST CONSTANTS # # #
-OUTPUT_PATH = r"G:\data_requests\2024-03-28 YNYCA\2 - output\staging"
+OUTPUT_PATH = r"G:\data_requests\2024-04-24 WFC\1 - Output\1 - Staging\automated_outputs"
 REQUEST_CODE = r"4019 - OD"
 
 
