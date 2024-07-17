@@ -11,7 +11,7 @@ import warnings
 import caf.toolkit as ctk
 import pandas as pd
 
-from caf.carbon_vkms import utils, vkms
+from carbon_vkms import utils, vkms
 
 ##### CONSTANTS #####
 
