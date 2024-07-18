@@ -24,7 +24,8 @@ from carbon_vkms import utils
 
 LOG = logging.getLogger(__name__)
 SATPIG_HDF_GROUPS = {"od": "/data/OD", "routes": "data/Route", "links": "data/link"}
-LINK_DATA_COLUMNS = ["speed", "distance"]
+LINK_DATA_COLUMNS = ["speed", "distance", ]
+COST_DATA_COLUMNS = [ "uncongested_time_s", "congested_time_s"]
 LINK_NODE_COLUMNS = ["a", "b"]
 _LINKS_FILLNA = {
     "zone": -1,
@@ -234,7 +235,6 @@ def update_links_data(
                 "Links data still contains Nan values after"
                 " infilling, this shouldn't be possible"
             )
-    #test
     # Convert metres to km
     links["distance"] = links["distance"] / 1000
 
@@ -577,7 +577,7 @@ def _aggregate_route_zones(
         .reset_index()
     )
     links = links.merge(
-        store.get(SATPIG_HDF_GROUPS["links"])[["zone"] + LINK_DATA_COLUMNS],
+        store.get(SATPIG_HDF_GROUPS["links"])[["zone"] + LINK_DATA_COLUMNS+COST_DATA_COLUMNS],
         left_on="link_id",
         right_index=True,
         how="left",
@@ -655,9 +655,9 @@ def _aggregate_route_zones(
             utils.shorten_list([f"{i}: {j}" for i, j in through_lookup.items()], 10),
         )
         route_data["through"] = route_data["through"].replace(through_lookup)
-
+    LOG.info("aggregating route data")
     routes_through = route_data.groupby(["route_id", "origin", "destination", "through"])[
-        LINK_DATA_COLUMNS
+        LINK_DATA_COLUMNS+COST_DATA_COLUMNS
     ].aggregate(
         {
             "speed": distance_weighted_mean,
@@ -666,6 +666,7 @@ def _aggregate_route_zones(
             "congested_time_s": "sum",
         }
     )
+    LOG.info("aggregation complete")
 
     routes_through = routes_through.merge(
         od, how="left", validate="1:1", left_index=True, right_index=True
