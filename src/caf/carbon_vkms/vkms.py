@@ -24,8 +24,11 @@ from carbon_vkms import utils
 
 LOG = logging.getLogger(__name__)
 SATPIG_HDF_GROUPS = {"od": "/data/OD", "routes": "data/Route", "links": "data/link"}
-LINK_DATA_COLUMNS = ["speed", "distance", ]
-COST_DATA_COLUMNS = [ "uncongested_time_s", "congested_time_s"]
+LINK_DATA_COLUMNS = [
+    "speed",
+    "distance",
+]
+COST_DATA_COLUMNS = ["uncongested_time_s", "congested_time_s"]
 LINK_NODE_COLUMNS = ["a", "b"]
 _LINKS_FILLNA = {
     "zone": -1,
@@ -577,7 +580,9 @@ def _aggregate_route_zones(
         .reset_index()
     )
     links = links.merge(
-        store.get(SATPIG_HDF_GROUPS["links"])[["zone"] + LINK_DATA_COLUMNS+COST_DATA_COLUMNS],
+        store.get(SATPIG_HDF_GROUPS["links"])[
+            ["zone"] + LINK_DATA_COLUMNS + COST_DATA_COLUMNS
+        ],
         left_on="link_id",
         right_index=True,
         how="left",
@@ -657,7 +662,7 @@ def _aggregate_route_zones(
         route_data["through"] = route_data["through"].replace(through_lookup)
     LOG.info("aggregating route data")
     routes_through = route_data.groupby(["route_id", "origin", "destination", "through"])[
-        LINK_DATA_COLUMNS+COST_DATA_COLUMNS
+        LINK_DATA_COLUMNS + COST_DATA_COLUMNS
     ].aggregate(
         {
             "speed": distance_weighted_mean,
@@ -672,14 +677,32 @@ def _aggregate_route_zones(
         od, how="left", validate="1:1", left_index=True, right_index=True
     )
     routes_through["through_vkms"] = routes_through["distance"] * routes_through["abs_demand"]
+
+    #calculate relative demand
+    od_total_demand = (
+        routes_through.groupby(["origin", "destination"])["abs_demand"]
+        .sum()
+    )
+    od_total_demand.name = "od_demand_total"
+    routes_through = routes_through = (
+        routes_through.merge(od_total_demand, left_index=True, right_index=True, how="outer")
+    )
+    
+    #this sounds like a good idea to do here. Is it?
+    del od_total_demand
+
+    routes_through["demand_ratio"] = routes_through["abs_demand"]/routes_through["od_demand_total"]
+
+    tina_outputs = routes_through.drop(columns=["od_demand_total", "abs_demand", "speed", "distance", "through_vkms"])
+
     # TODO also output in queriable & appendable format (e.g h5 table format)
     routes_through.to_csv(through_path, **csv_kwargs)
     LOG.info("Written: %s", through_path)
 
     # maybe parquet or db
 
-    LOG.info("Writting to: %s", through_path.with_suffix(suffix=".h5"))
-    routes_through.to_hdf(
+    LOG.info("Writting TINA thangs to: %s", through_path.with_suffix(suffix=".h5"))
+    tina_outputs.to_hdf(
         through_path.with_suffix(suffix=".h5"),
         key="route_skims",
         mode="a",
