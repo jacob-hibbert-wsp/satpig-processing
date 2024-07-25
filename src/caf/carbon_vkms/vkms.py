@@ -391,6 +391,7 @@ def _aggregate_routes(
         "route_speed": weighted_mean,
         "abs_demand": "sum",
         "route_vkms": "sum",
+        'route_0-40': "sum", 'route_40-60': "sum", 'route_60-80': "sum", 'route_80-100': "sum", 'route_100+': "sum",
     }
     agg_methods.update(dict.fromkeys(banding_columns, "sum"))
 
@@ -448,6 +449,7 @@ def _aggregate_through(
         "speed": weighted_mean,
         "abs_demand": "sum",
         "through_vkms": "sum",
+        '0-40': "sum", '40-60': "sum", '60-80': "sum", '80-100': "sum", '100+': "sum",
     }
     agg_methods.update(dict.fromkeys(banding_columns, "sum"))
 
@@ -583,12 +585,40 @@ def _aggregate_route_zones(
     def distance_weighted_mean(data: pd.Series) -> float:
         return np.average(data, weights=route_data.loc[data.index, "distance"])
 
-    # Calculate aggregations across whole routes and for specific through zones separately
-    route_totals = route_data.groupby(["route_id", "origin", "destination"])[
-        LINK_DATA_COLUMNS
-    ].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
-    route_totals.columns = [f"route_{i}" for i in route_totals.columns]
 
+    def speed_bands(data: pd.Series):
+         # Replace negative speeds with 0
+        data = data.clip(lower=0)
+    
+        # Check for speeds greater than 120
+        if (data > 120).any():
+            print("Warning: There are speeds greater than 120 kph in the data.")
+       
+        distances, bins = np.histogram(
+            data,
+            bins=(0, 40, 60, 80, 100, np.inf),
+            weights=route_data.loc[data.index, "distance"],
+        )
+        return pd.Series(distances, index=['0-40', '40-60', '60-80', '80-100', '100+'])
+        #LOG.info("creating speed bins")
+
+    # Apply the functions after grouping by route_id, origin, and destination
+
+    # Apply the functions after grouping by route_id, origin, and destination
+    grouped = route_data.groupby(['route_id', 'origin', 'destination'])
+    
+    # Calculate the distance-weighted mean speed for each group
+    grouped_speed_mean = route_data.groupby(["route_id", "origin", "destination"])[LINK_DATA_COLUMNS].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
+    
+    # Calculate the speed bands for each group and include the distances
+    grouped_speed_bands = grouped['speed'].apply(speed_bands).unstack().fillna(0)
+    
+    # Combine the results into a single DataFrame
+    route_totals = grouped_speed_mean.join(grouped_speed_bands)
+
+
+    route_totals.columns = [f"route_{i}" for i in route_totals.columns]
+    print(route_totals.columns)
     if route_totals.index.get_level_values("route_id").has_duplicates:
         dups = route_totals.index.get_level_values("route_id").duplicated().sum()
         warnings.warn(f"Found {dups:,} duplicate route IDs in route summary OD grouping")
@@ -602,6 +632,11 @@ def _aggregate_route_zones(
         od, how="left", validate="1:1", left_index=True, right_index=True
     )
     route_totals["route_vkms"] = route_totals["route_distance"] * route_totals["abs_demand"]
+    print(route_totals.columns)
+
+    for col in ['route_0-40', 'route_40-60', 'route_60-80', 'route_80-100', 'route_100+']:
+        route_totals[col] = route_totals[col] * route_totals['abs_demand']
+
 
     route_totals.to_csv(summary_path, **csv_kwargs)
     LOG.info("Written: %s", summary_path)
@@ -630,14 +665,30 @@ def _aggregate_route_zones(
         )
         route_data["through"] = route_data["through"].replace(through_lookup)
 
-    routes_through = route_data.groupby(["route_id", "origin", "destination", "through"])[
-        LINK_DATA_COLUMNS
-    ].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
+    # TODO Add the speed band calculation here too
+     # Apply the functions after grouping by route_id, origin, and destination
+
+    # Apply the functions after grouping by route_id, origin, and destination
+    grouped = route_data.groupby(['route_id', 'origin', 'destination', "through"])
+    
+    # Calculate the distance-weighted mean speed for each group
+    grouped_speed_mean = route_data.groupby(["route_id", "origin", "destination", "through"])[LINK_DATA_COLUMNS].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
+    
+    # Calculate the speed bands for each group and include the distances
+    grouped_speed_bands = grouped['speed'].apply(speed_bands).unstack().fillna(0)
+    
+    # Combine the results into a single DataFrame
+    routes_through = grouped_speed_mean.join(grouped_speed_bands)
+    #routes_through = route_data.groupby(["route_id", "origin", "destination", "through"])[
+    #    LINK_DATA_COLUMNS
+    #].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
 
     routes_through = routes_through.merge(
         od, how="left", validate="1:1", left_index=True, right_index=True
     )
     routes_through["through_vkms"] = routes_through["distance"] * routes_through["abs_demand"]
+    for col in ['0-40', '40-60', '60-80', '80-100', '100+']:
+        routes_through[col] = routes_through[col] * routes_through['abs_demand']
 
     routes_through.to_csv(through_path, **csv_kwargs)
     LOG.info("Written: %s", through_path)
@@ -718,7 +769,7 @@ def process_hdf(
     links_data_path: pathlib.Path,
     working_directory: pathlib.Path,
     through_lookup_path: Optional[pathlib.Path] = None,
-    chunk_size: int = 100,
+    chunk_size: int = 10,
     zone_filter: Optional[Sequence[int]] = None,
 ) -> None:
     output_paths = VKMSOutputPaths(path, working_directory)
