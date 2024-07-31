@@ -391,7 +391,7 @@ def _aggregate_routes(
         "route_speed": weighted_mean,
         "abs_demand": "sum",
         "route_vkms": "sum",
-        'route_0-40': "sum", 'route_40-60': "sum", 'route_60-80': "sum", 'route_80-100': "sum", 'route_100+': "sum",
+        'route_0-10': "sum", 'route_10-30': "sum", 'route_30-50': "sum", 'route_50-70': "sum", 'route_70-90': "sum",'route_90-110': "sum", 'route_110+': "sum",
     }
     agg_methods.update(dict.fromkeys(banding_columns, "sum"))
 
@@ -449,7 +449,7 @@ def _aggregate_through(
         "speed": weighted_mean,
         "abs_demand": "sum",
         "through_vkms": "sum",
-        '0-40': "sum", '40-60': "sum", '60-80': "sum", '80-100': "sum", '100+': "sum",
+        '0-10': "sum", '10-30': "sum", '30-50': "sum", '50-70': "sum", '70-90': "sum",'90-110': "sum",'110+': "sum"
     }
     agg_methods.update(dict.fromkeys(banding_columns, "sum"))
 
@@ -596,23 +596,30 @@ def _aggregate_route_zones(
        
         distances, bins = np.histogram(
             data,
-            bins=(0, 40, 60, 80, 100, np.inf),
+            bins=(0, 10, 30, 50,70,90, 110, np.inf),
             weights=route_data.loc[data.index, "distance"],
         )
-        return pd.Series(distances, index=['0-40', '40-60', '60-80', '80-100', '100+'])
+        return pd.Series(distances, index=['0-10', '10-30', '30-50', '50-70', '70-90','90-110','110+'])
         #LOG.info("creating speed bins")
 
     # Apply the functions after grouping by route_id, origin, and destination
 
     # Apply the functions after grouping by route_id, origin, and destination
-    grouped = route_data.groupby(['route_id', 'origin', 'destination'])
+    #
+    # grouped = route_data.groupby(['route_id', 'origin', 'destination'])
     
     # Calculate the distance-weighted mean speed for each group
-    grouped_speed_mean = route_data.groupby(["route_id", "origin", "destination"])[LINK_DATA_COLUMNS].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
+    grouped_speed_mean = route_data.groupby(["route_id", "origin", "destination"])[LINK_DATA_COLUMNS].aggregate({"speed": distance_weighted_mean,  "distance": "sum"})
     
+    bins = (0, 10, 30, 50,70,90, 110, np.inf)
+    bin_names = ['0-10', '10-30', '30-50', '50-70', '70-90','90-110','110+']
+    route_data["speed_band"] = np.digitize(route_data["speed"], bins)
+    route_data["speed_band"] = route_data["speed_band"].replace({i: j for i, j in enumerate(bin_names, start=1)})
+    grouped_speed_bands = route_data.groupby(["route_id", "origin", "destination", "speed_band"])["distance"].sum().unstack().fillna(0)
+    print(route_data)
     # Calculate the speed bands for each group and include the distances
-    grouped_speed_bands = grouped['speed'].apply(speed_bands).unstack().fillna(0)
-    
+    #grouped_speed_bands = grouped['speed'].apply(speed_bands).unstack().fillna(0)
+    #print(grouped_speed_bands)
     # Combine the results into a single DataFrame
     route_totals = grouped_speed_mean.join(grouped_speed_bands)
 
@@ -632,9 +639,8 @@ def _aggregate_route_zones(
         od, how="left", validate="1:1", left_index=True, right_index=True
     )
     route_totals["route_vkms"] = route_totals["route_distance"] * route_totals["abs_demand"]
-    print(route_totals.columns)
 
-    for col in ['route_0-40', 'route_40-60', 'route_60-80', 'route_80-100', 'route_100+']:
+    for col in ['route_0-10', 'route_10-30', 'route_30-50', 'route_50-70', 'route_70-90','route_90-110','route_110+']:
         route_totals[col] = route_totals[col] * route_totals['abs_demand']
 
 
@@ -665,31 +671,34 @@ def _aggregate_route_zones(
         )
         route_data["through"] = route_data["through"].replace(through_lookup)
 
-    # TODO Add the speed band calculation here too
+
      # Apply the functions after grouping by route_id, origin, and destination
 
     # Apply the functions after grouping by route_id, origin, and destination
-    grouped = route_data.groupby(['route_id', 'origin', 'destination', "through"])
+    #grouped = route_data.groupby(['route_id', 'origin', 'destination', "through"])
     
     # Calculate the distance-weighted mean speed for each group
     grouped_speed_mean = route_data.groupby(["route_id", "origin", "destination", "through"])[LINK_DATA_COLUMNS].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
-    
+      
+    bins = (0, 10, 30, 50,70,90, 110, np.inf)
+    bin_names = ['0-10', '10-30', '30-50', '50-70', '70-90','90-110','110+']
+    route_data["speed_band"] = np.digitize(route_data["speed"], bins)
+    route_data["speed_band"] = route_data["speed_band"].replace({i: j for i, j in enumerate(bin_names, start=1)})
+    grouped_speed_bands = route_data.groupby(["route_id", "origin", "destination", "through" "speed_band"])["distance"].sum().unstack().fillna(0)
+    print(route_data)
     # Calculate the speed bands for each group and include the distances
-    grouped_speed_bands = grouped['speed'].apply(speed_bands).unstack().fillna(0)
-    
+    #grouped_speed_bands = grouped['speed'].apply(speed_bands).unstack().fillna(0)
+    #print(grouped_speed_bands)
     # Combine the results into a single DataFrame
     routes_through = grouped_speed_mean.join(grouped_speed_bands)
-    #routes_through = route_data.groupby(["route_id", "origin", "destination", "through"])[
-    #    LINK_DATA_COLUMNS
-    #].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
 
     routes_through = routes_through.merge(
         od, how="left", validate="1:1", left_index=True, right_index=True
     )
     routes_through["through_vkms"] = routes_through["distance"] * routes_through["abs_demand"]
-    for col in ['0-40', '40-60', '60-80', '80-100', '100+']:
+    for col in ['0-10', '10-30', '30-50', '50-70', '70-90', '90-110','110+']:
         routes_through[col] = routes_through[col] * routes_through['abs_demand']
-
+    LOG.info("Writing: %s", through_path)
     routes_through.to_csv(through_path, **csv_kwargs)
     LOG.info("Written: %s", through_path)
 
@@ -810,6 +819,8 @@ def process_hdf(
         timer = utils.Timer()
         route_summary_path, route_through_path = None, None
         for i, chunk in enumerate(itertools.batched(zones, chunk_size), start=1):
+            if chunk >1:
+                break
             route_zones, route_summary_path, route_through_path = _aggregate_route_zones(
                 store,
                 route_zones,
