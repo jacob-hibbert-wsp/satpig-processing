@@ -684,7 +684,7 @@ def _aggregate_route_zones(
     bin_names = ['0-10', '10-30', '30-50', '50-70', '70-90','90-110','110+']
     route_data["speed_band"] = np.digitize(route_data["speed"], bins)
     route_data["speed_band"] = route_data["speed_band"].replace({i: j for i, j in enumerate(bin_names, start=1)})
-    grouped_speed_bands = route_data.groupby(["route_id", "origin", "destination", "through" "speed_band"])["distance"].sum().unstack().fillna(0)
+    grouped_speed_bands = route_data.groupby(["route_id", "origin", "destination", "through", "speed_band"])["distance"].sum().unstack().fillna(0)
     print(route_data)
     # Calculate the speed bands for each group and include the distances
     #grouped_speed_bands = grouped['speed'].apply(speed_bands).unstack().fillna(0)
@@ -819,8 +819,6 @@ def process_hdf(
         timer = utils.Timer()
         route_summary_path, route_through_path = None, None
         for i, chunk in enumerate(itertools.batched(zones, chunk_size), start=1):
-            if chunk >1:
-                break
             route_zones, route_summary_path, route_through_path = _aggregate_route_zones(
                 store,
                 route_zones,
