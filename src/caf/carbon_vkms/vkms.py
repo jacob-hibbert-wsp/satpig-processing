@@ -585,7 +585,7 @@ def _aggregate_route_zones(
     def distance_weighted_mean(data: pd.Series) -> float:
         return np.average(data, weights=route_data.loc[data.index, "distance"])
 
-
+    #TODO remove functions
     def speed_bands(data: pd.Series):
          # Replace negative speeds with 0
         data = data.clip(lower=0)
@@ -616,7 +616,8 @@ def _aggregate_route_zones(
     route_data["speed_band"] = np.digitize(route_data["speed"], bins)
     route_data["speed_band"] = route_data["speed_band"].replace({i: j for i, j in enumerate(bin_names, start=1)})
     grouped_speed_bands = route_data.groupby(["route_id", "origin", "destination", "speed_band"])["distance"].sum().unstack().fillna(0)
-    print(route_data)
+    #TODO remove unstack
+    #TODO remove old process using apply(speedbands), should be commented out
     # Calculate the speed bands for each group and include the distances
     #grouped_speed_bands = grouped['speed'].apply(speed_bands).unstack().fillna(0)
     #print(grouped_speed_bands)
@@ -685,6 +686,8 @@ def _aggregate_route_zones(
     route_data["speed_band"] = np.digitize(route_data["speed"], bins)
     route_data["speed_band"] = route_data["speed_band"].replace({i: j for i, j in enumerate(bin_names, start=1)})
     grouped_speed_bands = route_data.groupby(["route_id", "origin", "destination", "through", "speed_band"])["distance"].sum().unstack().fillna(0)
+    #TODO remove unstack
+    #TODO remove old process using apply(speedbands), should be commented out
     print(route_data)
     # Calculate the speed bands for each group and include the distances
     #grouped_speed_bands = grouped['speed'].apply(speed_bands).unstack().fillna(0)
