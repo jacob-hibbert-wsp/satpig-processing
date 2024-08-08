@@ -391,7 +391,13 @@ def _aggregate_routes(
         "route_speed": weighted_mean,
         "abs_demand": "sum",
         "route_vkms": "sum",
-        'route_0-10': "sum", 'route_10-30': "sum", 'route_30-50': "sum", 'route_50-70': "sum", 'route_70-90': "sum",'route_90-110': "sum", 'route_110+': "sum",
+        "route_0-10": "sum",
+        "route_10-30": "sum",
+        "route_30-50": "sum",
+        "route_50-70": "sum",
+        "route_70-90": "sum",
+        "route_90-110": "sum",
+        "route_110+": "sum",
     }
     agg_methods.update(dict.fromkeys(banding_columns, "sum"))
 
@@ -449,7 +455,13 @@ def _aggregate_through(
         "speed": weighted_mean,
         "abs_demand": "sum",
         "through_vkms": "sum",
-        '0-10': "sum", '10-30': "sum", '30-50': "sum", '50-70': "sum", '70-90': "sum",'90-110': "sum",'110+': "sum"
+        "0-10": "sum",
+        "10-30": "sum",
+        "30-50": "sum",
+        "50-70": "sum",
+        "70-90": "sum",
+        "90-110": "sum",
+        "110+": "sum",
     }
     agg_methods.update(dict.fromkeys(banding_columns, "sum"))
 
@@ -585,65 +597,66 @@ def _aggregate_route_zones(
     def distance_weighted_mean(data: pd.Series) -> float:
         return np.average(data, weights=route_data.loc[data.index, "distance"])
 
-    #TODO remove functions
+    # TODO remove functions
     def speed_bands(data: pd.Series):
-         # Replace negative speeds with 0
+        # Replace negative speeds with 0
         data = data.clip(lower=0)
-    
+
         # Check for speeds greater than 120
         if (data > 120).any():
             print("Warning: There are speeds greater than 120 kph in the data.")
-       
+
         distances, bins = np.histogram(
             data,
-            bins=(0, 10, 30, 50,70,90, 110, np.inf),
+            bins=(0, 10, 30, 50, 70, 90, 110, np.inf),
             weights=route_data.loc[data.index, "distance"],
         )
-        return pd.Series(distances, index=['0-10', '10-30', '30-50', '50-70', '70-90','90-110','110+'])
-        #LOG.info("creating speed bins")
+        return pd.Series(
+            distances, index=["0-10", "10-30", "30-50", "50-70", "70-90", "90-110", "110+"]
+        )
+        # LOG.info("creating speed bins")
 
     # Apply the functions after grouping by route_id, origin, and destination
 
     # Apply the functions after grouping by route_id, origin, and destination
     #
     # grouped = route_data.groupby(['route_id', 'origin', 'destination'])
-    
+
     # Calculate the distance-weighted mean speed for each group
-    grouped_speed_mean = route_data.groupby(["route_id", "origin", "destination"])[LINK_DATA_COLUMNS].aggregate({"speed": distance_weighted_mean,  "distance": "sum"})
-    
-    bins = (0, 10, 30, 50,70,90, 110, np.inf)
-    bin_names = ['0-10', '10-30', '30-50', '50-70', '70-90','90-110','110+']
-    route_data["speed_band"] = np.digitize(route_data["speed"], bins)
-    route_data["speed_band"] = route_data["speed_band"].replace({i: j for i, j in enumerate(bin_names, start=1)})
-    grouped_speed_bands = route_data.groupby(["route_id", "origin", "destination", "speed_band"])["distance"].sum().unstack().fillna(0)
-    #TODO remove unstack
-    #TODO remove old process using apply(speedbands), should be commented out
-    # Calculate the speed bands for each group and include the distances
-    #grouped_speed_bands = grouped['speed'].apply(speed_bands).unstack().fillna(0)
-    #print(grouped_speed_bands)
-    # Combine the results into a single DataFrame
-    route_totals = grouped_speed_mean.join(grouped_speed_bands)
+    grouped_speed_mean = route_data.groupby(["route_id", "origin", "destination"])[
+        LINK_DATA_COLUMNS
+    ].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
 
-
-    route_totals.columns = [f"route_{i}" for i in route_totals.columns]
-    print(route_totals.columns)
-    if route_totals.index.get_level_values("route_id").has_duplicates:
-        dups = route_totals.index.get_level_values("route_id").duplicated().sum()
-        warnings.warn(f"Found {dups:,} duplicate route IDs in route summary OD grouping")
-
-    # Join demand data and calculate route VKMs
     od = store.get(SATPIG_HDF_GROUPS["od"])["abs_demand"]
     od.index = od.index.droplevel([i for i in od.index.names if i != "route"])
     od.index.name = "route_id"
 
-    route_totals = route_totals.merge(
-        od, how="left", validate="1:1", left_index=True, right_index=True
+    speed_bins = (0, 10, 30, 50, 70, 90, 110, np.inf)
+    speed_bin_labels = [
+        "vkm_0-10_kph",
+        "vkm_10-30_kph",
+        "vkm_30-50_kph",
+        "vkm_50-70_kph",
+        "vkm_70-90_kph",
+        "vkm_90-110_kph",
+        "vkm_110+_kph",
+    ]
+
+    dist_bins = (0, 2, 5, 10, 20, 50, np.inf)
+    dist_bin_labels = ["0-2km", "2-5km", "5-10km", "10-20km", "20-50km", "50+km"]
+
+    route_total_index_labels = ["route_id", "origin", "destination", "speed_band"]
+    LOG.info("Calculating route speed distance vkm matrix")
+    route_totals = vkm_speed_distance_matrix(
+        route_data.set_index(["route_id", "origin", "destination"], drop=True),
+        grouped_speed_mean,
+        od,
+        route_total_index_labels,
+        speed_bins,
+        speed_bin_labels,
+        dist_bins,
+        dist_bin_labels,
     )
-    route_totals["route_vkms"] = route_totals["route_distance"] * route_totals["abs_demand"]
-
-    for col in ['route_0-10', 'route_10-30', 'route_30-50', 'route_50-70', 'route_70-90','route_90-110','route_110+']:
-        route_totals[col] = route_totals[col] * route_totals['abs_demand']
-
 
     route_totals.to_csv(summary_path, **csv_kwargs)
     LOG.info("Written: %s", summary_path)
@@ -672,41 +685,164 @@ def _aggregate_route_zones(
         )
         route_data["through"] = route_data["through"].replace(through_lookup)
 
-
-     # Apply the functions after grouping by route_id, origin, and destination
+    # Apply the functions after grouping by route_id, origin, and destination
 
     # Apply the functions after grouping by route_id, origin, and destination
-    #grouped = route_data.groupby(['route_id', 'origin', 'destination', "through"])
-    
-    # Calculate the distance-weighted mean speed for each group
-    grouped_speed_mean = route_data.groupby(["route_id", "origin", "destination", "through"])[LINK_DATA_COLUMNS].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
-      
-    bins = (0, 10, 30, 50,70,90, 110, np.inf)
-    bin_names = ['0-10', '10-30', '30-50', '50-70', '70-90','90-110','110+']
-    route_data["speed_band"] = np.digitize(route_data["speed"], bins)
-    route_data["speed_band"] = route_data["speed_band"].replace({i: j for i, j in enumerate(bin_names, start=1)})
-    grouped_speed_bands = route_data.groupby(["route_id", "origin", "destination", "through", "speed_band"])["distance"].sum().unstack().fillna(0)
-    #TODO remove unstack
-    #TODO remove old process using apply(speedbands), should be commented out
-    print(route_data)
-    # Calculate the speed bands for each group and include the distances
-    #grouped_speed_bands = grouped['speed'].apply(speed_bands).unstack().fillna(0)
-    #print(grouped_speed_bands)
-    # Combine the results into a single DataFrame
-    routes_through = grouped_speed_mean.join(grouped_speed_bands)
+    # grouped = route_data.groupby(['route_id', 'origin', 'destination', "through"])
 
-    routes_through = routes_through.merge(
-        od, how="left", validate="1:1", left_index=True, right_index=True
+    # TODO this does almost exactly the same thing as above just with an extra index - create a function that deals with both
+
+    # Calculate the distance-weighted mean speed for each group
+
+    grouped_speed_mean = route_data.groupby(["route_id", "origin", "destination", "through"])[
+        LINK_DATA_COLUMNS
+    ].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
+    route_through_index_labels = ["route_id", "origin", "destination","through", "speed_band"]
+    routes_through = vkm_speed_distance_matrix(
+        route_data.set_index(["route_id", "origin", "destination", "through"], drop=True),
+        grouped_speed_mean,
+        od,
+        route_through_index_labels,
+        speed_bins,
+        speed_bin_labels,
+        dist_bins,
+        dist_bin_labels,
     )
-    routes_through["through_vkms"] = routes_through["distance"] * routes_through["abs_demand"]
-    for col in ['0-10', '10-30', '30-50', '50-70', '70-90', '90-110','110+']:
-        routes_through[col] = routes_through[col] * routes_through['abs_demand']
+
     LOG.info("Writing: %s", through_path)
     routes_through.to_csv(through_path, **csv_kwargs)
     LOG.info("Written: %s", through_path)
 
     route_zones.loc[routes_mask.values, "done_row"] = True
     return route_zones, summary_path, through_path
+
+
+def vkm_speed_distance_matrix(
+    route_data: pd.DataFrame,
+    route_speed_distance: pd.DataFrame,
+    demand: pd.DataFrame,
+    index_names: list[str],
+    speed_bins: list[int],
+    speed_bin_labels: list[str],
+    dist_bins: list[int],
+    dist_bin_labels: list[str],
+) -> pd.DataFrame:
+    """
+    calculates a speed-distance vkm matrix from route data, average route speed
+    total route distance and route demand
+
+    Parameters
+
+    route_data: pd.DataFrame
+        route link info 
+    route_speed_distance: pd.DataFrame
+        mean speed and distance travelled for each route
+    demand: pd.DataFrame,
+        od demand assocaited with each route
+    index_names: list[str],
+        names of the indices of route data and route speed distance
+    speed_bins: list[int],
+        bin edges for the speed bins
+    speed_bin_labels: list[str],
+        labels for the speed bins (outputted)
+    dist_bins: list[int],
+        bin edges for the distance bins
+    dist_bin_labels: list[str],
+        labels for the distance bins (outputted)
+
+    OUTPUTS: pd.DataFrame
+
+    a VKM speed distance matrix
+    index: index_names + trip_band
+    columns: speed_bin_labels + total_through_vkms
+    values: vkms
+
+    """
+    LOG.debug("calculating speed bands")
+
+
+    route_data["speed_band"] = pd.cut(
+        route_speed_distance["speed"],
+        bins=speed_bins,
+        labels=speed_bin_labels,
+    )
+    grouped_speed_bands: pd.DataFrame = (
+        route_data.groupby(index_names, observed=True)["distance"].sum().fillna(0)
+    )
+
+
+    # Combine the results into a single DataFrame
+    LOG.debug("calculating distance bands")
+    route_speed_distance["trip_band"] = pd.cut(
+        route_speed_distance["distance"],
+        bins=dist_bins,
+        labels=dist_bin_labels,
+    )
+
+    route_speed_distance = route_speed_distance.rename(columns={"distance": "route_distance"})
+
+    LOG.debug("combining route and banded data")
+    vkms = route_speed_distance.merge(
+        grouped_speed_bands, how="outer", left_index=True, right_index=True
+    )
+
+    if vkms.index.get_level_values("route_id").has_duplicates:
+        dups = vkms.index.get_level_values("route_id").duplicated().sum()
+        warnings.warn(f"Found {dups:,} duplicate route IDs in route summary OD grouping")
+
+    LOG.debug("Join demand data and calculate VKMs matrix")
+
+    vkms = vkms.merge(demand, how="left", validate="1:1", left_index=True, right_index=True)
+
+
+    # calculate Vkms
+    vkms["route_vkms"] = vkms["route_distance"] * vkms["abs_demand"]
+
+    vkms["vkms"] = vkms["distance"] * vkms["abs_demand"]
+
+    #TODO there is probably a better way of doing this
+    # this is to create a total through vkms speed_band so that it appears as a column when pivoted
+
+    route_vkms = vkms.copy()
+
+    route_vkms = route_vkms.reset_index()
+
+    route_vkms["speed_band"] = "total_through_vkms"
+
+    route_vkms = route_vkms.set_index(index_names, drop=True)
+    #need to do this as we are pivoting with distance as value
+    route_vkms["distance"] = route_vkms["route_vkms"]
+
+    combined_vkms = pd.concat([vkms, route_vkms])
+
+    LOG.debug("pivot to wide")
+
+    pivot_index = index_names.copy()
+
+    pivot_index.remove("speed_band")
+
+    pivot_index.append("trip_band")
+    
+
+    pivoted_vkms = (
+        combined_vkms.reset_index()
+        .pivot(index=pivot_index, columns="speed_band", values="vkms")
+        .fillna(0)
+    )
+
+
+    #make sure all cols are present (if no fall into band then none col won't exist)
+    ordered_output_columns = speed_bin_labels+["total_through_vkms"]
+    for col in ordered_output_columns:
+        if col not in pivoted_vkms.columns:
+            #if col doesnt exist we know no vkms are in the band
+            pivoted_vkms[col] = 0
+
+
+    #need this .loc to reorder columns into correct order
+    return pivoted_vkms.loc[:, ordered_output_columns]
+
+
 
 
 class VKMSOutputPaths:
