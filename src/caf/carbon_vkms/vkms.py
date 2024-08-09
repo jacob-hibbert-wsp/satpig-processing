@@ -623,18 +623,14 @@ def _aggregate_route_zones(
     # grouped = route_data.groupby(['route_id', 'origin', 'destination'])
 
     # Calculate the distance-weighted mean speed for each group
-    grouped_speed_mean = route_data.groupby(["route_id", "origin", "destination"])[
-        LINK_DATA_COLUMNS
-    ].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
 
     od = store.get(SATPIG_HDF_GROUPS["od"])["abs_demand"]
     od.index = od.index.droplevel([i for i in od.index.names if i != "route"])
     od.index.name = "route_id"
 
-    speed_bins = (0, 10, 30, 50, 70, 90, 110, np.inf)
+    speed_bins = (0, 30, 50, 70, 90, 110, np.inf)
     speed_bin_labels = [
-        "vkm_0-10_kph",
-        "vkm_10-30_kph",
+        "vkm_0-30_kph",
         "vkm_30-50_kph",
         "vkm_50-70_kph",
         "vkm_70-90_kph",
@@ -649,7 +645,6 @@ def _aggregate_route_zones(
     LOG.info("Calculating route speed distance vkm matrix")
     route_totals = vkm_speed_distance_matrix(
         route_data.set_index(["route_id", "origin", "destination"], drop=True),
-        grouped_speed_mean,
         od,
         route_total_index_labels,
         speed_bins,
@@ -694,13 +689,9 @@ def _aggregate_route_zones(
 
     # Calculate the distance-weighted mean speed for each group
 
-    grouped_speed_mean = route_data.groupby(["route_id", "origin", "destination", "through"])[
-        LINK_DATA_COLUMNS
-    ].aggregate({"speed": distance_weighted_mean, "distance": "sum"})
     route_through_index_labels = ["route_id", "origin", "destination","through", "speed_band"]
     routes_through = vkm_speed_distance_matrix(
         route_data.set_index(["route_id", "origin", "destination", "through"], drop=True),
-        grouped_speed_mean,
         od,
         route_through_index_labels,
         speed_bins,
@@ -719,7 +710,6 @@ def _aggregate_route_zones(
 
 def vkm_speed_distance_matrix(
     route_data: pd.DataFrame,
-    route_speed_distance: pd.DataFrame,
     demand: pd.DataFrame,
     index_names: list[str],
     speed_bins: list[int],
@@ -760,9 +750,8 @@ def vkm_speed_distance_matrix(
     """
     LOG.debug("calculating speed bands")
 
-
     route_data["speed_band"] = pd.cut(
-        route_speed_distance["speed"],
+        route_data["speed"],
         bins=speed_bins,
         labels=speed_bin_labels,
     )
@@ -770,19 +759,24 @@ def vkm_speed_distance_matrix(
         route_data.groupby(index_names, observed=True)["distance"].sum().fillna(0)
     )
 
+    route_index = index_names.copy()
+    route_index.remove("speed_band")
+
+    route_distance = route_data.groupby(route_index, observed=True)["distance"].sum().to_frame("route_distance")
+
 
     # Combine the results into a single DataFrame
     LOG.debug("calculating distance bands")
-    route_speed_distance["trip_band"] = pd.cut(
-        route_speed_distance["distance"],
+
+
+    route_distance["trip_band"] = pd.cut(
+        route_distance["route_distance"],
         bins=dist_bins,
         labels=dist_bin_labels,
     )
 
-    route_speed_distance = route_speed_distance.rename(columns={"distance": "route_distance"})
-
     LOG.debug("combining route and banded data")
-    vkms = route_speed_distance.merge(
+    vkms = route_distance.merge(
         grouped_speed_bands, how="outer", left_index=True, right_index=True
     )
 
@@ -811,9 +805,11 @@ def vkm_speed_distance_matrix(
 
     route_vkms = route_vkms.set_index(index_names, drop=True)
     #need to do this as we are pivoting with distance as value
-    route_vkms["distance"] = route_vkms["route_vkms"]
+    route_vkms["vkms"] = route_vkms["route_vkms"]
 
-    combined_vkms = pd.concat([vkms, route_vkms])
+    route_vkms = route_vkms.reset_index().drop_duplicates(subset = index_names, keep="first").set_index(index_names, drop =True)
+
+    combined_vkms = pd.concat([vkms[["vkms", "trip_band"]], route_vkms[["vkms", "trip_band"]]])
 
     LOG.debug("pivot to wide")
 
@@ -822,7 +818,6 @@ def vkm_speed_distance_matrix(
     pivot_index.remove("speed_band")
 
     pivot_index.append("trip_band")
-    
 
     pivoted_vkms = (
         combined_vkms.reset_index()
